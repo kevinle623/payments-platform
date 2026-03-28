@@ -1,1 +1,1 @@
-from shared.db.adapters.postgresql import get_db, engine, AsyncSessionLocal
+from shared.db.adapters.postgresql import AsyncSessionLocal, engine, get_db

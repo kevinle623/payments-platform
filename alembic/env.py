@@ -1,14 +1,13 @@
 import asyncio
 from logging.config import fileConfig
 
+from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+import app.ledger.models  # noqa: F401
+from alembic import context
 from shared.db.base import Base
 from shared.settings import DATABASE_URL
-
-from sqlalchemy import pool
-
-from alembic import context
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -74,6 +73,7 @@ def run_migrations_online() -> None:
             context.run_migrations()
 
     asyncio.run(do_run_migrations())
+
 
 if context.is_offline_mode():
     run_migrations_offline()
