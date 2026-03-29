@@ -110,6 +110,62 @@ payments-platform/              (monorepo root)
 
 ---
 
+## Future extension work (issuer-side simulation roadmap)
+Goal: keep current Stripe acquiring flow, and add a second track that simulates issuer-side systems for learning.
+
+### Why this matters
+- Current project is strong for payment orchestration, webhooks, and ledgering
+- Issuer-side work adds authorization decisioning, controls, limits, settlement/reconciliation, and dispute flows
+- A realistic simulator can teach issuer architecture without needing direct card network access
+
+### Core issuer domains to add
+- Card program + cardholder/accounts domain
+- Authorization engine (`auth request` -> approve/decline with reason codes)
+- Holds lifecycle (`authorize`, `increment`, `partial capture`, `reversal`, `expiry`)
+- Settlement and posting pipeline (pending -> posted entries)
+- Spend controls (MCC blocks, merchant/category restrictions, velocity limits, per-user/team budgets)
+- Risk/fraud checks and rule evaluation
+- Disputes/chargebacks and adjustments
+
+### Recommended architecture approach
+- Keep `payments` module for acquiring (Stripe) as-is
+- Add new `issuer` module(s) in API:
+  - `issuer/cards`
+  - `issuer/authorizations`
+  - `issuer/controls`
+  - `issuer/settlement`
+  - `issuer/disputes`
+- Reuse the same double-entry ledger, but introduce issuer-specific account mappings and posting policies
+- Use outbox + RabbitMQ as the event backbone between auth, posting, risk, and notifications
+- Build a fake network adapter that emits realistic card lifecycle events into the system
+
+### Simulation strategy (no real network required)
+- Implement a `MockNetworkAdapter` that sends ISO-like event payloads (auth, clearing, reversal, chargeback)
+- Drive scenarios with deterministic fixtures:
+  - insufficient funds/limit
+  - MCC blocked
+  - velocity exceeded
+  - auth approved but clearing amount differs
+  - late presentment and expired holds
+- Keep Stripe path available for end-to-end acquiring demos while issuer simulator runs in parallel
+
+### Milestones
+1. Issuer account and card models with limits and available balance calculation
+2. Real-time auth decision endpoint + rule engine + reason codes
+3. Hold/settlement state machine with double-entry postings and invariants
+4. Outbox events + consumer services for notifications/risk/reporting
+5. Reconciliation and dispute simulation
+6. Full integration test harness with scenario replay
+
+### Quality bar for issuer track
+- State machine tests for all lifecycle transitions
+- Ledger invariants: every posting balanced and traceable to source event
+- Idempotency on all inbound network events
+- Replay-safe consumers and at-least-once event handling
+- Auditability: immutable event log + correlation IDs across modules
+
+---
+
 ## Running the apps
 ```bash
 # API (from apps/api/)
