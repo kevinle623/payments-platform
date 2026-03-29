@@ -1,15 +1,26 @@
 # payments-platform
 
-A payments platform monorepo implementing double-entry ledger accounting, processor abstraction, idempotency, and Stripe webhook handling -- with a Next.js frontend for end-to-end payment testing.
+A FastAPI + Next.js payments platform that integrates Stripe PaymentIntents, records double-entry ledger entries, handles webhooks, and ships with a demo frontend for end-to-end testing—built with Dockerized Postgres/Redis and a Celery + RabbitMQ outbox pipeline for reliable async event fan-out.
 
 ## Tech stack
 
 | Layer | Stack |
 |-------|-------|
-| **API** | Python 3.13, FastAPI, SQLAlchemy (async), Alembic, asyncpg, Pydantic v2, Poetry |
-| **Web** | Next.js 16 (App Router), TypeScript, Tailwind CSS v4, Bun, Stripe.js |
-| **Infra** | PostgreSQL, Redis, RabbitMQ (Docker Compose) |
-| **Payments** | Stripe (PaymentIntents with manual capture) |
+| API | Python 3.13, FastAPI, SQLAlchemy (async), Alembic, asyncpg, Pydantic v2, Poetry |
+| Web | Next.js 16 (App Router), TypeScript, Tailwind CSS v4, Bun, Stripe.js |
+| Infra | PostgreSQL, Redis, RabbitMQ, Docker Compose |
+| Payments | Stripe PaymentIntents (manual capture) |
+
+## Architecture overview
+
+- API: Functional services and repositories; repositories return Pydantic DTOs, services own transaction boundaries and commits; processor abstraction via `PaymentProcessor` Protocol with `StripeAdapter`; FastAPI exception handlers map domain errors.
+- Payments: `POST /payments/authorize` creates a PaymentIntent and writes ledger authorization entries; webhooks (`payment_intent.succeeded`, refunds) drive settlement and ledger updates; idempotency on authorize to reuse an existing intent.
+- Ledger: Double-entry model with accounts, transactions, and entries; every event writes balanced debit and credit rows.
+- Frontend: Next.js App Router demo page using Stripe Elements; calls API for authorization then confirms client-side with Stripe.js.
+- Outbox (planned): During the same DB transaction as ledger writes, an outbox row is stored. A Celery worker publishes outbox events to RabbitMQ with retries and marks them sent.
+- Consumers (planned): RabbitMQ consumers perform side effects off the critical path, such as notifications, fraud checks, and reporting.
+- Reconciliation (planned): Nightly job compares ledger state with Stripe (and other processors if added) to flag drift.
+- Observability: Logging via shared logger; liveness endpoint at `/_live`.
 
 ## Project structure
 
@@ -20,27 +31,45 @@ payments-platform/
       app/
         payments/         payment processing (authorize, capture, refund, webhooks)
         ledger/           double-entry ledger (transactions, entries, accounts)
-      shared/             cross-cutting: DB, processors, enums, exceptions, config
-      alembic/            database migrations
+      shared/             DB, processors, enums, exceptions, config
+      alembic/            migrations
       scripts/            seed scripts
-      tests/              pytest test suite
+      tests/              pytest suite (ledger present, payments planned)
       main.py             app entry point
     web/                  Next.js frontend
-      src/
-        app/              App Router pages
-        components/       React components (CheckoutForm)
-  docker-compose.yml      PostgreSQL, Redis, RabbitMQ
+      src/app             App Router pages
+      src/components      Checkout form with Stripe Elements
+  docker-compose.yml      Postgres, Redis, RabbitMQ
 ```
+
+## Data flow (implemented)
+
+1. Frontend calls `POST /payments/authorize`, API creates PaymentIntent (manual capture) and ledger authorization entries, returns `client_secret`.
+2. Stripe Elements confirms the intent; Stripe finalizes authorization or success.
+3. Stripe webhook hits `/payments/webhooks/stripe`; API verifies signature and dispatches to payment service.
+4. Service settles payment record and writes ledger settlement entries in a single transaction.
+5. Idempotent authorize reuses an existing intent instead of creating a new one.
+
+## Asynchronous processing (planned)
+
+- Outbox table written in the same transaction as ledger changes.
+- Celery worker polls outbox, publishes to RabbitMQ with at-least-once semantics, marks rows as sent.
+- Dedicated consumers handle notifications, fraud checks, reporting, and any downstream integrations without blocking the checkout path.
+
+## Reconciliation (planned)
+
+- Scheduled job compares internal ledger balances and payment records against Stripe data.
+- Flags discrepancies and can emit reconciliation events through the same outbox and consumer pipeline.
 
 ## Getting started
 
 ### Prerequisites
 
 - Python 3.13+
-- [Poetry](https://python-poetry.org/)
-- [Bun](https://bun.sh/)
-- Docker & Docker Compose
-- A [Stripe](https://stripe.com/) test account
+- Poetry
+- Bun
+- Docker and Docker Compose
+- Stripe test account
 
 ### 1. Start infrastructure
 
@@ -52,78 +81,44 @@ docker compose up -d
 
 ```bash
 cd apps/api
-
-# Copy env and fill in your Stripe keys
 cp .env.example .env
-
-# Install dependencies
 poetry install
-
-# Run migrations
 poetry run alembic upgrade head
-
-# Seed ledger accounts
 poetry run python -m scripts.seed
-
-# Start the server
 poetry run uvicorn main:app --reload
 ```
 
-The API runs at `http://localhost:8000`.
+API runs at `http://localhost:8000`.
 
 ### 3. Set up the frontend
 
 ```bash
 cd apps/web
-
-# Install dependencies
 bun install
-
-# Add your Stripe publishable key
-echo 'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_YOUR_KEY_HERE' > .env.local
-
-# Start the dev server
+echo 'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_YOUR_KEY' > .env.local
+echo 'NEXT_PUBLIC_API_URL=http://localhost:8000' >> .env.local
 bun dev
 ```
 
-The frontend runs at `http://localhost:3000`.
+Frontend runs at `http://localhost:3000`.
 
-### 4. Forward Stripe webhooks (for local testing)
+### 4. Forward Stripe webhooks
 
 ```bash
 stripe listen --forward-to localhost:8000/payments/webhooks/stripe
 ```
 
-Copy the webhook signing secret (`whsec_...`) into `apps/api/.env` as `STRIPE_WEBHOOK_SECRET`.
-
-## End-to-end payment flow
-
-1. Open `http://localhost:3000`
-2. Click **Authorize Payment** -- the frontend calls `POST /payments/authorize` and receives a `client_secret`
-3. Stripe Elements renders a card form
-4. Enter test card `4242 4242 4242 4242` (any future expiry, any CVC)
-5. Click **Pay now** -- Stripe.js confirms the payment intent
-6. Stripe fires a `payment_intent.succeeded` webhook to the API
-7. The webhook handler settles the payment record and writes ledger settlement entries
-8. Full double-entry lifecycle complete
+Copy the printed `whsec_...` into `apps/api/.env` as `STRIPE_WEBHOOK_SECRET` and restart the API if it changes.
 
 ## API endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/payments/authorize` | Create a PaymentIntent and ledger authorization entries |
-| `POST` | `/payments/capture` | Capture an authorized payment |
-| `POST` | `/payments/refund` | Refund a captured payment |
-| `POST` | `/payments/webhooks/stripe` | Stripe webhook receiver |
-| `GET` | `/_live` | Liveness check |
-
-## Architecture highlights
-
-- **Double-entry ledger** -- every payment event (authorization, settlement) writes balanced debit/credit entries that sum to zero
-- **Processor abstraction** -- `PaymentProcessor` Protocol with `StripeAdapter` implementation and a factory; adding a new processor means writing one adapter
-- **Idempotency** -- duplicate authorize requests return the existing result without hitting Stripe again
-- **Service/repository pattern** -- repositories return Pydantic DTOs (never ORM models), services own transaction boundaries
-- **Atomic writes** -- payment record + ledger entries are written in a single DB transaction; commit or rollback together
+| POST | `/payments/authorize` | Create PaymentIntent and ledger authorization entries |
+| POST | `/payments/capture` | Capture an authorized payment |
+| POST | `/payments/refund` | Refund a captured payment |
+| POST | `/payments/webhooks/stripe` | Stripe webhook receiver |
+| GET  | `/_live` | Liveness check |
 
 ## Environment variables
 
@@ -146,3 +141,4 @@ Copy the webhook signing secret (`whsec_...`) into `apps/api/.env` as `STRIPE_WE
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Yes | Stripe publishable key (`pk_test_...`) |
+| `NEXT_PUBLIC_API_URL` | No | API base URL for the frontend (default: `http://localhost:8000`) |
