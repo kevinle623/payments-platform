@@ -5,6 +5,7 @@ from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 import app.ledger.models  # noqa: F401
+import app.payments.models  # noqa: F401
 from alembic import context
 from shared.db.base import Base
 from shared.settings import DATABASE_URL

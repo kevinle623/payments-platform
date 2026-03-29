@@ -11,7 +11,7 @@ from app.ledger.schemas import (
     LedgerEntryDTO,
     LedgerTransactionResponse,
 )
-from shared.enum.currency import Currency
+from shared.enums.currency import Currency
 
 
 async def get_account(

@@ -8,7 +8,7 @@ from app.ledger.schemas import (
     LedgerEntryDTO,
     LedgerTransactionResponse,
 )
-from shared.enum.currency import Currency
+from shared.enums.currency import Currency
 from shared.exceptions import LedgerImbalanceError
 
 
@@ -17,21 +17,13 @@ async def _record_transaction(
     description: str,
     entries: list[LedgerEntryDTO],
 ) -> LedgerTransactionResponse:
-    # core invariant -- all entries must sum to zero (double-entry bookkeeping)
     total = sum(e.amount for e in entries)
     if total != 0:
         raise LedgerImbalanceError(
             f"Ledger entries do not balance: sum={total}. "
             "Debits and credits must cancel out."
         )
-
-    try:
-        result = await repository.create_transaction(session, description, entries)
-        await session.commit()
-        return result
-    except Exception:
-        await session.rollback()
-        raise
+    return await repository.create_transaction(session, description, entries)
 
 
 async def record_authorization(

@@ -3,10 +3,6 @@ from enum import StrEnum
 from typing import Protocol
 
 
-class SupportedProcessorType(StrEnum):
-    STRIPE = "stripe"
-
-
 class PaymentStatus(StrEnum):
     PENDING = "pending"
     SUCCEEDED = "succeeded"

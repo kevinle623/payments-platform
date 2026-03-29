@@ -7,7 +7,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from shared.db.base import Base
-from shared.enum.currency import Currency
+from shared.enums.currency import Currency
 
 
 class AccountType(StrEnum):

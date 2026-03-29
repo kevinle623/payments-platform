@@ -2,7 +2,7 @@ from os import environ
 
 from dotenv import load_dotenv
 
-from shared.processors.base import SupportedProcessorType
+from shared.enums.processor import SupportedProcessorType
 
 load_dotenv()
 

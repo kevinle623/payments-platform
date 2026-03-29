@@ -5,7 +5,7 @@ import pytest
 from app.ledger import service
 from app.ledger.models import LedgerAccount
 from app.ledger.schemas import LedgerEntryDTO
-from shared.enum.currency import Currency
+from shared.enums.currency import Currency
 from shared.exceptions import LedgerImbalanceError
 
 
@@ -35,6 +35,7 @@ async def test_record_transaction_succeeds_when_entries_balance(session):
         LedgerEntryDTO(account_id=account_b.id, amount=-100),
     ]
     result = await service._record_transaction(session, "test charge", entries)
+    await session.commit()  # test owns the commit now
     assert result.description == "test charge"
     assert len(result.entries) == 2
     assert sum(e.amount for e in result.entries) == 0
