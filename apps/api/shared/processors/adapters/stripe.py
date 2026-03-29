@@ -46,6 +46,7 @@ class StripeAdapter:
             )
             return PaymentIntent(
                 processor_id=intent.id,
+                client_secret=intent.client_secret,
                 status=_STATUS_MAP.get(intent.status, PaymentStatus.PENDING),
                 amount=intent.amount,
                 currency=intent.currency,

@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bunx create-next-app@latest apps/web --typescript --tailwind --eslint --app --src-dir --no-turbopack --no-import-alias --use-bun)",
+      "Bash(bun install:*)",
+      "Bash(bun add:*)"
+    ]
+  }
+}

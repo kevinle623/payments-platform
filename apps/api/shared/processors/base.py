@@ -26,6 +26,7 @@ class ProcessorEventType(StrEnum):
 @dataclass
 class PaymentIntent:
     processor_id: str
+    client_secret: str
     status: PaymentStatus
     amount: int  # always in cents
     currency: str

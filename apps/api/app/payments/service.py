@@ -53,6 +53,7 @@ async def authorize(
         return AuthorizeResponse(
             id=record.id,
             processor_payment_id=record.processor_payment_id,
+            client_secret=payment_intent.client_secret,
             status=record.status,
             amount=record.amount,
             currency=record.currency,
