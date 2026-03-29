@@ -1,6 +1,7 @@
 import stripe
 
 from shared.exceptions import ProcessorError
+from shared.logger import logger
 from shared.processors.base import (
     CaptureResult,
     PaymentIntent,
@@ -48,7 +49,7 @@ class StripeAdapter:
                 status=_STATUS_MAP.get(intent.status, PaymentStatus.PENDING),
                 amount=intent.amount,
                 currency=intent.currency,
-                metadata=dict(intent.metadata),
+                metadata=intent.metadata._to_dict_recursive(),
             )
         except stripe.StripeError as e:
             raise ProcessorError(str(e)) from e
@@ -90,11 +91,7 @@ class StripeAdapter:
             raise ProcessorError(str(e)) from e
 
     # noinspection PyMethodMayBeStatic
-    async def parse_webhook(
-        self,
-        payload: bytes,
-        signature: str,
-    ) -> ProcessorEvent:
+    async def parse_webhook(self, payload: bytes, signature: str) -> ProcessorEvent:
         try:
             event = stripe.Webhook.construct_event(
                 payload, signature, STRIPE_WEBHOOK_SECRET
@@ -102,15 +99,21 @@ class StripeAdapter:
         except stripe.SignatureVerificationError as e:
             raise ProcessorError("Invalid webhook signature") from e
 
+        logger.info("Received Stripe event: %s", event.type)
+        logger.info("Raw event object: %s", event.data.object)
+
         event_type = _EVENT_MAP.get(event.type)
         if not event_type:
-            raise ProcessorError(f"Unhandled event type: {event.type}")
+            logger.info("Ignoring unhandled event type: %s", event.type)
+            return None
 
-        obj = event.data.object
+        obj_dict = event.data.object._to_dict_recursive()
+        logger.info("Converted to dict: %s", obj_dict)
+
         return ProcessorEvent(
             event_type=event_type,
-            processor_payment_id=obj.get("id") or obj.get("payment_intent"),
-            amount=obj.get("amount", 0),
-            currency=obj.get("currency", "usd"),
-            metadata=dict(obj.get("metadata", {})),
+            processor_payment_id=obj_dict.get("id") or obj_dict.get("payment_intent"),
+            amount=obj_dict.get("amount", 0),
+            currency=obj_dict.get("currency", "usd"),
+            metadata=obj_dict.get("metadata", {}),
         )

@@ -11,6 +11,7 @@ from app.payments.schemas import (
     RefundResponse,
 )
 from shared.exceptions import PaymentNotFoundError
+from shared.logger import logger
 from shared.processors.base import PaymentProcessor
 from shared.settings import PROCESSOR
 
@@ -120,6 +121,54 @@ async def refund(
             currency=record.currency,
             updated_at=record.updated_at,
         )
+    except Exception:
+        await session.rollback()
+        raise
+
+
+async def handle_payment_succeeded(
+    session: AsyncSession,
+    processor_payment_id: str,
+    liability_account_id: uuid.UUID,
+    cash_account_id: uuid.UUID,
+) -> None:
+    try:
+        record = await repository.settle(session, processor_payment_id)
+        if not record:
+            logger.warning(
+                "Received payment.succeeded for unknown payment: %s",
+                processor_payment_id,
+            )
+            return
+
+        await ledger_service.record_settlement(
+            session,
+            liability_account_id=liability_account_id,
+            cash_account_id=cash_account_id,
+            amount=record.amount,
+            description=f"settlement for payment {record.id}",
+        )
+        await session.commit()
+        logger.info("Payment settled: %s", processor_payment_id)
+    except Exception:
+        await session.rollback()
+        raise
+
+
+async def handle_payment_refunded(
+    session: AsyncSession,
+    processor_payment_id: str,
+) -> None:
+    try:
+        record = await repository.refund_payment(session, processor_payment_id)
+        if not record:
+            logger.warning(
+                "Received payment.refunded for unknown payment: %s",
+                processor_payment_id,
+            )
+            return
+        await session.commit()
+        logger.info("Payment refunded: %s", processor_payment_id)
     except Exception:
         await session.rollback()
         raise

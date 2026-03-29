@@ -74,22 +74,21 @@ async def stripe_webhook(
     processor = get_processor()
     event = await processor.parse_webhook(payload, stripe_signature)
 
-    # dispatch based on event type
+    if event is None:
+        return {"status": "ignored"}
+
     if event.event_type == ProcessorEventType.PAYMENT_SUCCEEDED:
-        await service.capture(
+        # don't call processor.capture() -- money already moved
+        # just update our internal records
+        await service.handle_payment_succeeded(
             session=session,
             processor_payment_id=event.processor_payment_id,
-            processor=processor,
             liability_account_id=uuid.UUID(LIABILITY_ACCOUNT_ID),
             cash_account_id=uuid.UUID(CASH_ACCOUNT_ID),
         )
     elif event.event_type == ProcessorEventType.PAYMENT_REFUNDED:
-        await service.refund(
-            session=session,
-            processor_payment_id=event.processor_payment_id,
-            amount=event.amount,
-            processor=processor,
+        await service.handle_payment_refunded(
+            session=session, processor_payment_id=event.processor_payment_id
         )
 
-    # always return 200 fast -- Stripe will retry if we don't
     return {"status": "accepted"}
