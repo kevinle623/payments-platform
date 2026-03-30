@@ -74,18 +74,17 @@ payments-platform/
 ### 1. Start infrastructure
 
 ```bash
-docker compose up -d
+make infra
 ```
 
 ### 2. Set up the API
 
 ```bash
 cd apps/api
-cp .env.example .env
+cp .env.example .env   # fill in STRIPE_SECRET_KEY etc.
 poetry install
-poetry run alembic upgrade head
-poetry run python -m scripts.seed
-poetry run uvicorn main:app --reload
+make migrate
+make seed
 ```
 
 API runs at `http://localhost:8000`.
@@ -97,18 +96,56 @@ cd apps/web
 bun install
 echo 'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_YOUR_KEY' > .env.local
 echo 'NEXT_PUBLIC_API_URL=http://localhost:8000' >> .env.local
-bun dev
 ```
 
 Frontend runs at `http://localhost:3000`.
 
-### 4. Forward Stripe webhooks
+### 4. Start everything
+
+```bash
+make dev   # starts infra + api + web concurrently
+```
+
+Or start each individually:
+
+```bash
+make api   # FastAPI on :8000
+make web   # Next.js on :3000
+```
+
+### 5. Forward Stripe webhooks
 
 ```bash
 stripe listen --forward-to localhost:8000/payments/webhooks/stripe
 ```
 
 Copy the printed `whsec_...` into `apps/api/.env` as `STRIPE_WEBHOOK_SECRET` and restart the API if it changes.
+
+## Make targets
+
+Run `make help` to see all targets. Common ones:
+
+| Target | Description |
+|--------|-------------|
+| `make infra` | Start Postgres, Redis, RabbitMQ |
+| `make infra-down` | Stop infrastructure |
+| `make infra-reset` | Stop infrastructure and destroy volumes |
+| `make infra-logs` | Tail infrastructure logs |
+| `make dev` | Start infra + api + web concurrently |
+| `make api` | Start FastAPI dev server |
+| `make web` | Start Next.js dev server |
+| `make migrate` | Run Alembic migrations |
+| `make downgrade` | Rollback one migration |
+| `make migration` | Create a new migration (prompts for name) |
+| `make seed` | Seed ledger accounts |
+| `make lint` | Fix lint and format issues (api + web) |
+| `make typecheck` | Run mypy (api) and tsc (web) |
+| `make test` | Run all tests |
+| `make test-api` | Run pytest only |
+| `make test-web` | Run web tests only |
+| `make test-watch` | Run web tests in watch mode |
+| `make check` | Read-only lint + typecheck + all tests (CI) |
+| `make clean` | Remove `__pycache__`, `.mypy_cache`, `.ruff_cache`, `*.pyc` |
 
 ## API endpoints
 
