@@ -2,6 +2,8 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.issuer.auth import service as issuer_auth_service
+from app.issuer.auth.models import IssuerAuthDecision
 from app.ledger import service as ledger_service
 from app.payments import repository
 from app.payments.schemas import (
@@ -10,7 +12,7 @@ from app.payments.schemas import (
     CaptureResponse,
     RefundResponse,
 )
-from shared.exceptions import PaymentNotFoundError
+from shared.exceptions import PaymentDeclinedException, PaymentNotFoundError
 from shared.logger import logger
 from shared.processors.base import PaymentProcessor
 from shared.settings import PROCESSOR
@@ -31,6 +33,23 @@ async def authorize(
             existing.id,
         )
         return existing
+
+    issuer_auth = await issuer_auth_service.evaluate(
+        session,
+        idempotency_key=request.idempotency_key,
+        amount=request.amount,
+        currency=request.currency,
+        metadata=request.metadata,
+    )
+    if issuer_auth.decision == IssuerAuthDecision.DECLINED:
+        logger.warning(
+            "issuer declined payment | idempotency_key=%s reason=%s",
+            request.idempotency_key,
+            issuer_auth.decline_reason,
+        )
+        raise PaymentDeclinedException(
+            issuer_auth.decline_reason or "payment declined by issuer"
+        )
 
     payment_intent = await processor.create_payment_intent(
         amount=request.amount,

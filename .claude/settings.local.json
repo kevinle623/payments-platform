@@ -5,7 +5,9 @@
       "Bash(bun install:*)",
       "Bash(bun add:*)",
       "Bash(make help:*)",
-      "Bash(ls /Users/kevinle/Developer/payments-platform/*.md)"
+      "Bash(ls /Users/kevinle/Developer/payments-platform/*.md)",
+      "Bash(poetry run:*)",
+      "Bash($HOME/.local/bin/poetry run:*)"
     ]
   }
 }

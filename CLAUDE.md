@@ -98,6 +98,10 @@ payments-platform/              (monorepo root)
 - DB seeded with expense, liability, cash ledger accounts
 - CORS middleware allows requests from `localhost:3000`
 - Next.js dummy frontend with Stripe Elements card form for end-to-end testing
+- Payment service tests -- pytest with mocked processor, real test DB, covers authorize, idempotency, capture, refund, webhook handlers
+- Ledger service tests -- all passing, session.commit() owned by caller as designed
+- Logging across router, service, and ledger layers (INFO for state transitions, ERROR for imbalance, DEBUG for ledger writes)
+- Bug fix -- `AuthorizeResponse.client_secret` defaulted to `None` so idempotency path doesn't blow up on DB hydration
 
 ---
 
@@ -105,8 +109,6 @@ payments-platform/              (monorepo root)
 - Outbox pattern -- write ledger + outbox event atomically, Celery worker polls and publishes to RabbitMQ
 - RabbitMQ event consumers (fraud, notifications, reporting)
 - Reconciliation job -- Celery Beat nightly job comparing ledger against Stripe records
-- Payment service tests -- pytest with mocked processor adapter and real test DB
-- Ledger tests need updating -- `session.commit()` was removed from ledger service, tests need `await session.commit()` added directly
 
 ---
 
@@ -210,6 +212,48 @@ CASH_ACCOUNT_ID=00000000-0000-0000-0000-000000000003
 ```
 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_...
 ```
+
+---
+
+## Issuer track -- architecture decisions
+
+The issuer auth engine runs synchronously inside `payment_service.authorize()`,
+before the Stripe PaymentIntent is created. This mirrors real-world card network
+sequencing -- the issuer must approve before the acquirer proceeds.
+
+### Call order in authorize()
+1. Idempotency check (existing)
+2. `issuer_auth_service.evaluate()` -- synchronous, blocking
+3. If declined -- raise `PaymentDeclinedException`, never touch Stripe
+4. Write issuer hold to ledger via `issuer_ledger_service.record_hold()`
+5. Create Stripe PaymentIntent (existing)
+6. Write acquiring payment record + ledger auth entries (existing)
+7. `session.commit()` -- single transaction covers both sides
+
+### Settlement (webhook side)
+Inside `payment_service.handle_payment_succeeded()`, after acquiring ledger
+settlement, call `issuer_settlement_service.clear_hold()` in the same transaction.
+
+### Module structure
+- `app/issuer/auth/`        -- evaluate(), rule engine, IssuerAuthorization model
+- `app/issuer/controls/`    -- spend controls, MCC blocks, velocity limits
+- `app/issuer/settlement/`  -- clear_hold()
+- `app/issuer/network/`     -- MockNetworkAdapter (translates payment request to ISO-like auth request)
+
+### Dependency rule
+Payment service may call issuer service. Issuer service never calls payment
+service. One-directional only.
+
+### Outbox / RabbitMQ
+Not used for auth or settlement -- those are synchronous direct service calls.
+Reserved for async side effects: fraud scoring, notifications, reporting.
+
+### Build order
+1. `issuer/auth/` -- stub engine that always approves, wire end to end first
+2. Plug into `payment_service.authorize()` before Stripe call
+3. `issuer/controls/` -- MCC blocks, velocity limits, spend controls
+4. `issuer/settlement/` -- clear_hold() from webhook handler
+5. Outbox + RabbitMQ for async side effects last
 
 ---
 

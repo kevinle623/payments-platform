@@ -16,3 +16,7 @@ class IdempotencyConflictError(PaymentsError):
 
 class ProcessorError(PaymentsError):
     """Raised when the payment processor returns an error."""
+
+
+class PaymentDeclinedException(PaymentsError):
+    """Raised when the issuer declines a payment authorization."""
