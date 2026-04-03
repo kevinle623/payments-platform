@@ -2,6 +2,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 import app.ledger.models  # noqa: F401
+import app.payments.models  # noqa: F401
 from shared.db.base import Base
 
 TEST_DATABASE_URL = (

@@ -19,7 +19,7 @@ class AuthorizeResponse(BaseModel):
 
     id: uuid.UUID
     processor_payment_id: str | None
-    client_secret: str | None
+    client_secret: str | None = None
     status: PaymentStatus
     amount: int
     currency: str

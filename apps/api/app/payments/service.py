@@ -25,6 +25,11 @@ async def authorize(
 ) -> AuthorizeResponse:
     existing = await repository.get_by_idempotency_key(session, request.idempotency_key)
     if existing:
+        logger.info(
+            "authorize idempotency hit | idempotency_key=%s payment_id=%s",
+            request.idempotency_key,
+            existing.id,
+        )
         return existing
 
     payment_intent = await processor.create_payment_intent(
@@ -50,6 +55,13 @@ async def authorize(
             description=f"authorization for payment {record.id}",
         )
         await session.commit()
+        logger.info(
+            "payment authorized | payment_id=%s processor_payment_id=%s amount=%d currency=%s",
+            record.id,
+            record.processor_payment_id,
+            record.amount,
+            record.currency,
+        )
         return AuthorizeResponse(
             id=record.id,
             processor_payment_id=record.processor_payment_id,
@@ -61,6 +73,10 @@ async def authorize(
             created_at=record.created_at,
         )
     except Exception:
+        logger.exception(
+            "authorize failed, rolling back | idempotency_key=%s",
+            request.idempotency_key,
+        )
         await session.rollback()
         raise
 
@@ -72,6 +88,7 @@ async def capture(
     liability_account_id: uuid.UUID,
     cash_account_id: uuid.UUID,
 ) -> CaptureResponse:
+    logger.info("capturing payment | processor_payment_id=%s", processor_payment_id)
     await processor.capture(processor_payment_id)
 
     try:
@@ -87,6 +104,12 @@ async def capture(
             description=f"settlement for payment {record.id}",
         )
         await session.commit()
+        logger.info(
+            "payment captured | payment_id=%s processor_payment_id=%s amount=%d",
+            record.id,
+            record.processor_payment_id,
+            record.amount,
+        )
         return CaptureResponse(
             id=record.id,
             processor_payment_id=record.processor_payment_id,
@@ -96,6 +119,10 @@ async def capture(
             updated_at=record.updated_at,
         )
     except Exception:
+        logger.exception(
+            "capture failed, rolling back | processor_payment_id=%s",
+            processor_payment_id,
+        )
         await session.rollback()
         raise
 
@@ -106,6 +133,11 @@ async def refund(
     amount: int,
     processor: PaymentProcessor,
 ) -> RefundResponse:
+    logger.info(
+        "refunding payment | processor_payment_id=%s amount=%d",
+        processor_payment_id,
+        amount,
+    )
     await processor.refund(processor_payment_id, amount)
 
     try:
@@ -114,6 +146,11 @@ async def refund(
             raise PaymentNotFoundError(f"Payment not found: {processor_payment_id}")
 
         await session.commit()
+        logger.info(
+            "payment refunded | payment_id=%s processor_payment_id=%s",
+            record.id,
+            record.processor_payment_id,
+        )
         return RefundResponse(
             id=record.id,
             processor_payment_id=record.processor_payment_id,
@@ -123,6 +160,10 @@ async def refund(
             updated_at=record.updated_at,
         )
     except Exception:
+        logger.exception(
+            "refund failed, rolling back | processor_payment_id=%s",
+            processor_payment_id,
+        )
         await session.rollback()
         raise
 
