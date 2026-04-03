@@ -5,6 +5,7 @@ from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 import app.issuer.auth.models  # noqa: F401
+import app.issuer.cards.models  # noqa: F401
 import app.ledger.models  # noqa: F401
 import app.payments.models  # noqa: F401
 from alembic import context
