@@ -22,11 +22,11 @@ class VelocityRuleDTO(BaseModel):
 
     id: uuid.UUID
     card_id: uuid.UUID
-    max_amount: int   # in cents
+    max_amount: int  # in cents
     window_seconds: int
     created_at: datetime
 
 
 class CreateVelocityRuleRequest(BaseModel):
-    max_amount: int   # in cents
+    max_amount: int  # in cents
     window_seconds: int

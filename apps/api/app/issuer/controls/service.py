@@ -45,7 +45,9 @@ async def check_controls(
     # 3. velocity limits
     rules = await repository.get_velocity_rules_for_card(session, card_id)
     for rule in rules:
-        recent_spend = await _get_recent_approved_spend(session, card_id, rule.window_seconds)
+        recent_spend = await _get_recent_approved_spend(
+            session, card_id, rule.window_seconds
+        )
         if recent_spend + amount > rule.max_amount:
             logger.info(
                 "control check: velocity exceeded | card_id=%s recent=%d amount=%d max=%d window=%ds",
@@ -126,7 +128,9 @@ async def remove_velocity_rule(
     card_id: uuid.UUID,
     rule_id: uuid.UUID,
 ) -> bool:
-    removed = await repository.delete_velocity_rule(session, rule_id=rule_id, card_id=card_id)
+    removed = await repository.delete_velocity_rule(
+        session, rule_id=rule_id, card_id=card_id
+    )
     if removed:
         logger.info("velocity rule removed | card_id=%s rule_id=%s", card_id, rule_id)
     return removed

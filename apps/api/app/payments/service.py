@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.issuer.auth import service as issuer_auth_service
 from app.issuer.auth.models import IssuerAuthDecision
+from app.issuer.settlement import service as issuer_settlement_service
 from app.ledger import service as ledger_service
 from app.payments import repository
 from app.payments.schemas import (
@@ -209,6 +210,11 @@ async def handle_payment_succeeded(
             cash_account_id=cash_account_id,
             amount=record.amount,
             description=f"settlement for payment {record.id}",
+        )
+        await issuer_settlement_service.clear_hold(
+            session,
+            idempotency_key=record.idempotency_key,
+            amount=record.amount,
         )
         await session.commit()
         logger.info("Payment settled: %s", processor_payment_id)

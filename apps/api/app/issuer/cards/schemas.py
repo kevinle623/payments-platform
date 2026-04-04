@@ -3,7 +3,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
-from app.issuer.cards.models import CardStatus, CardholderStatus
+from app.issuer.cards.models import CardholderStatus, CardStatus
 from shared.enums.currency import Currency
 
 
@@ -48,5 +48,5 @@ class CardBalanceResponse(BaseModel):
     card_id: uuid.UUID
     credit_limit: int
     available_credit: int  # credit_limit + balance(available_balance_account)
-    pending_holds: int     # balance(pending_hold_account)
+    pending_holds: int  # balance(pending_hold_account)
     currency: str

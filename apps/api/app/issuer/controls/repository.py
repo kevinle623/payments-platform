@@ -6,7 +6,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.issuer.controls.models import MCCBlock, VelocityRule
 from app.issuer.controls.schemas import MCCBlockDTO, VelocityRuleDTO
 
-
 # -- MCC blocks --
 
 
@@ -28,9 +27,7 @@ async def get_mcc_blocks_for_card(
     session: AsyncSession,
     card_id: uuid.UUID,
 ) -> list[MCCBlockDTO]:
-    result = await session.execute(
-        select(MCCBlock).where(MCCBlock.card_id == card_id)
-    )
+    result = await session.execute(select(MCCBlock).where(MCCBlock.card_id == card_id))
     return [MCCBlockDTO.model_validate(row) for row in result.scalars().all()]
 
 

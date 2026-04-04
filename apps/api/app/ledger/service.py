@@ -105,6 +105,27 @@ async def record_hold(
     return await _record_transaction(session, description, entries)
 
 
+async def record_clear_hold(
+    session: AsyncSession,
+    pending_hold_account_id: uuid.UUID,
+    available_balance_account_id: uuid.UUID,
+    amount: int,
+    description: str,
+) -> LedgerTransactionResponse:
+    """Debit pending hold (clear it), credit available balance (restore it)."""
+    logger.info(
+        "recording clear hold | amount=%d pending_account=%s available_account=%s",
+        amount,
+        pending_hold_account_id,
+        available_balance_account_id,
+    )
+    entries = [
+        LedgerEntryDTO(account_id=pending_hold_account_id, amount=-amount),
+        LedgerEntryDTO(account_id=available_balance_account_id, amount=amount),
+    ]
+    return await _record_transaction(session, description, entries)
+
+
 async def get_balance(
     session: AsyncSession,
     account_id: uuid.UUID,

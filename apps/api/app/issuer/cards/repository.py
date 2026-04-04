@@ -3,9 +3,8 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.issuer.cards.models import Card, CardStatus, Cardholder, CardholderStatus
+from app.issuer.cards.models import Card, Cardholder, CardholderStatus, CardStatus
 from app.issuer.cards.schemas import CardDTO, CardholderDTO
-
 
 # -- cardholder --
 
@@ -31,9 +30,7 @@ async def get_cardholder(
 async def get_cardholder_by_email(
     session: AsyncSession, email: str
 ) -> CardholderDTO | None:
-    result = await session.execute(
-        select(Cardholder).where(Cardholder.email == email)
-    )
+    result = await session.execute(select(Cardholder).where(Cardholder.email == email))
     orm_object = result.scalar_one_or_none()
     if orm_object is None:
         return None
@@ -58,16 +55,12 @@ async def create_cardholder(
 # -- card --
 
 
-async def _get_card_orm(
-    session: AsyncSession, card_id: uuid.UUID
-) -> Card | None:
+async def _get_card_orm(session: AsyncSession, card_id: uuid.UUID) -> Card | None:
     result = await session.execute(select(Card).where(Card.id == card_id))
     return result.scalar_one_or_none()
 
 
-async def get_card(
-    session: AsyncSession, card_id: uuid.UUID
-) -> CardDTO | None:
+async def get_card(session: AsyncSession, card_id: uuid.UUID) -> CardDTO | None:
     orm_object = await _get_card_orm(session, card_id)
     if orm_object is None:
         return None
