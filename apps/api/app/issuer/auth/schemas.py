@@ -11,6 +11,7 @@ class IssuerAuthorizationDTO(BaseModel):
 
     id: uuid.UUID
     idempotency_key: str
+    card_id: uuid.UUID | None
     decision: IssuerAuthDecision
     decline_reason: str | None
     amount: int

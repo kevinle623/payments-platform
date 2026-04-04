@@ -84,6 +84,27 @@ async def record_settlement(
     return await _record_transaction(session, description, entries)
 
 
+async def record_hold(
+    session: AsyncSession,
+    available_balance_account_id: uuid.UUID,
+    pending_hold_account_id: uuid.UUID,
+    amount: int,
+    description: str,
+) -> LedgerTransactionResponse:
+    """Credit available balance (reduce available credit), debit pending hold."""
+    logger.info(
+        "recording hold | amount=%d available_account=%s pending_account=%s",
+        amount,
+        available_balance_account_id,
+        pending_hold_account_id,
+    )
+    entries = [
+        LedgerEntryDTO(account_id=available_balance_account_id, amount=-amount),
+        LedgerEntryDTO(account_id=pending_hold_account_id, amount=amount),
+    ]
+    return await _record_transaction(session, description, entries)
+
+
 async def get_balance(
     session: AsyncSession,
     account_id: uuid.UUID,

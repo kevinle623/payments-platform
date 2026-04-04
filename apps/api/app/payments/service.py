@@ -40,6 +40,7 @@ async def authorize(
         amount=request.amount,
         currency=request.currency,
         metadata=request.metadata,
+        card_id=request.card_id,
     )
     if issuer_auth.decision == IssuerAuthDecision.DECLINED:
         logger.warning(

@@ -24,6 +24,9 @@ class IssuerAuthorization(Base):
     # ties this authorization record back to the payment request
     idempotency_key: Mapped[str] = mapped_column(String, nullable=False, unique=True)
 
+    # card that was authorized against -- None for payments without a card
+    card_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+
     decision: Mapped[str] = mapped_column(String, nullable=False)
     decline_reason: Mapped[str | None] = mapped_column(String, nullable=True)
 

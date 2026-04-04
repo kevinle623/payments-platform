@@ -12,6 +12,7 @@ class AuthorizeRequest(BaseModel):
     currency: Currency
     idempotency_key: str
     metadata: dict = {}
+    card_id: uuid.UUID | None = None  # optional -- triggers issuer controls when provided
 
 
 class AuthorizeResponse(BaseModel):

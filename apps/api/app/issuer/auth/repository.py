@@ -1,3 +1,5 @@
+import uuid
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,9 +36,11 @@ async def create(
     decline_reason: str | None,
     amount: int,
     currency: str,
+    card_id: uuid.UUID | None = None,
 ) -> IssuerAuthorizationDTO:
     record = IssuerAuthorization(
         idempotency_key=idempotency_key,
+        card_id=card_id,
         decision=decision,
         decline_reason=decline_reason,
         amount=amount,
