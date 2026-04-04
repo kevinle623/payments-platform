@@ -4,10 +4,12 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from sqlalchemy import select
 
+from app.issuer.cards import service as cards_service
 from app.ledger.models import LedgerAccount, LedgerEntry
 from app.payments import service
 from app.payments.models import Payment
 from shared.enums.currency import Currency
+from shared.exceptions import PaymentDeclinedException
 from shared.processors.base import PaymentIntent, PaymentProcessor, PaymentStatus
 
 
@@ -197,15 +199,100 @@ async def test_handle_payment_refunded_marks_record_refunded(
     assert payment.status == PaymentStatus.REFUNDED
 
 
+# -- card-integrated payment tests --
+
+
+@pytest.fixture
+async def cardholder(session):
+    return await cards_service.create_cardholder(
+        session, name="Test User", email="test@example.com"
+    )
+
+
+@pytest.fixture
+async def card(session, cardholder):
+    return await cards_service.create_card(
+        session,
+        cardholder_id=cardholder.id,
+        credit_limit=10000,
+        currency=Currency.USD,
+    )
+
+
+async def test_authorize_with_card_writes_issuer_and_acquiring_ledger_entries(
+    session, mock_processor, ledger_accounts, card
+):
+    expense, liability, _ = ledger_accounts
+
+    await service.authorize(
+        session=session,
+        request=_authorize_request(card_id=card.id),
+        processor=mock_processor,
+        expense_account_id=expense.id,
+        liability_account_id=liability.id,
+    )
+
+    entries = (await session.execute(select(LedgerEntry))).scalars().all()
+    # 2 issuer (hold) + 2 acquiring (auth) = 4 total
+    assert len(entries) == 4
+    assert sum(e.amount for e in entries) == 0
+
+
+async def test_authorize_with_card_declined_raises_and_no_stripe_call(
+    session, mock_processor, ledger_accounts, card
+):
+    expense, liability, _ = ledger_accounts
+
+    with pytest.raises(PaymentDeclinedException):
+        await service.authorize(
+            session=session,
+            request=_authorize_request(amount=50000, card_id=card.id),  # $500 > $100 limit
+            processor=mock_processor,
+            expense_account_id=expense.id,
+            liability_account_id=liability.id,
+        )
+
+    mock_processor.create_payment_intent.assert_not_called()
+
+    entries = (await session.execute(select(LedgerEntry))).scalars().all()
+    assert entries == []
+
+
+async def test_handle_payment_succeeded_with_card_clears_hold(
+    session, mock_processor, ledger_accounts, card
+):
+    expense, liability, cash = ledger_accounts
+
+    await service.authorize(
+        session=session,
+        request=_authorize_request(card_id=card.id),
+        processor=mock_processor,
+        expense_account_id=expense.id,
+        liability_account_id=liability.id,
+    )
+    await service.handle_payment_succeeded(
+        session=session,
+        processor_payment_id="pi_test_123",
+        liability_account_id=liability.id,
+        cash_account_id=cash.id,
+    )
+
+    entries = (await session.execute(select(LedgerEntry))).scalars().all()
+    # 2 issuer hold + 2 acquiring auth + 2 acquiring settlement + 2 issuer clear = 8
+    assert len(entries) == 8
+    assert sum(e.amount for e in entries) == 0
+
+
 # -- helpers --
 
 
-def _authorize_request():
+def _authorize_request(amount: int = 5000, card_id: uuid.UUID | None = None):
     from app.payments.schemas import AuthorizeRequest
 
     return AuthorizeRequest(
-        amount=5000,
+        amount=amount,
         currency=Currency.USD,
         idempotency_key="idem-key-001",
         metadata={},
+        card_id=card_id,
     )
