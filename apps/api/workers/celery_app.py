@@ -3,7 +3,9 @@ from celery import Celery
 from shared.settings import RABBITMQ_URL
 
 celery_app = Celery(
-    "payments_platform", broker=RABBITMQ_URL, include=["workers.outbox_poller"]
+    "payments_platform",
+    broker=RABBITMQ_URL,
+    include=["workers.producers.payments.outbox_poller"],
 )
 
 celery_app.conf.update(
@@ -13,7 +15,7 @@ celery_app.conf.update(
     enable_utc=True,
     beat_schedule={
         "poll-outbox": {
-            "task": "workers.outbox_poller.poll_and_publish",
+            "task": "workers.producers.payments.outbox_poller.poll_and_publish",
             "schedule": 10.0,  # every 10 seconds
         },
     },

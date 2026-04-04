@@ -65,7 +65,17 @@ payments-platform/              (monorepo root)
         logger.py               -- get_logger(__name__)
       workers/
         celery_app.py           -- Celery app, broker config, Beat schedule (poll every 10s)
-        outbox_poller.py        -- poll_and_publish task: queries pending outbox rows, publishes to RabbitMQ via aio-pika
+        exchanges.py            -- PAYMENTS_EXCHANGE, ISSUER_EXCHANGE constants (single source of truth)
+        producers/
+          payments/
+            outbox_poller.py    -- poll_and_publish Celery task: queries pending outbox rows, publishes to payments exchange
+        consumers/
+          base.py               -- generic run_consumer/start (exchange_name, queue_name, routing_keys, handler)
+          payments/
+            fraud.py            -- payment.authorized -> risk score, flags high-value payments
+            notifications.py    -- payment.* -> simulated email/SMS notification
+            reporting.py        -- payment.* -> simulated analytics entry
+          issuer/               -- future: card.issued, dispute.opened, hold.expired consumers
       scripts/
         seed.py                 -- seeds ledger accounts into DB
       alembic/                  -- migrations
@@ -118,12 +128,13 @@ payments-platform/              (monorepo root)
 - `card_id` optional on `AuthorizeRequest` -- triggers full issuer controls when provided, backwards compatible when omitted
 - `PaymentDeclinedException` -- HTTP 402, raised when issuer declines before Stripe is called
 - Outbox pattern -- `OutboxEvent` rows written atomically in the same DB transaction as payment/ledger writes; Celery Beat fires every 10s, worker queries pending rows and publishes to RabbitMQ `payments` topic exchange via aio-pika, marks rows published/failed; `(status, created_at)` composite index covers the poller query; engine created fresh per task invocation (not reused from postgresql.py) to avoid asyncio event loop mismatch across `asyncio.run()` calls
+- RabbitMQ consumers -- three long-running async consumers (fraud, notifications, reporting) subscribe to the `payments` topic exchange via named durable queues; `prefetch_count=1` for one-at-a-time processing; `exchanges.py` is single source of truth for exchange names; producers under `workers/producers/`, consumers under `workers/consumers/`, both organized by domain for extensibility
 
 ---
 
 ## What's not yet built
-- RabbitMQ event consumers (fraud, notifications, reporting)
 - Reconciliation job -- Celery Beat nightly job comparing ledger against Stripe records
+- Docker Compose services for workers/consumers (deferred until reconciliation is done and logic is non-trivial)
 
 ---
 
@@ -199,6 +210,11 @@ cd apps/api && poetry run celery -A workers.celery_app worker --loglevel=info
 
 # Celery Beat scheduler (from apps/api/)
 cd apps/api && poetry run celery -A workers.celery_app beat --loglevel=info
+
+# RabbitMQ consumers (each in its own terminal, from apps/api/)
+cd apps/api && poetry run python -m workers.consumers.payments.fraud
+cd apps/api && poetry run python -m workers.consumers.payments.notifications
+cd apps/api && poetry run python -m workers.consumers.payments.reporting
 ```
 
 ---

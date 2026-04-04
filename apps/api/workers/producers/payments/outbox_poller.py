@@ -9,13 +9,12 @@ from app.outbox.schemas import OutboxEventDTO
 from shared.logger import get_logger
 from shared.settings import DATABASE_URL, RABBITMQ_URL
 from workers.celery_app import celery_app
+from workers.exchanges import PAYMENTS_EXCHANGE
 
 logger = get_logger(__name__)
 
-_EXCHANGE_NAME = "payments"
 
-
-@celery_app.task(name="workers.outbox_poller.poll_and_publish")
+@celery_app.task(name="workers.producers.payments.outbox_poller.poll_and_publish")
 def poll_and_publish() -> None:
     asyncio.run(_run())
 
@@ -37,7 +36,7 @@ async def _run() -> None:
             async with connection:
                 channel = await connection.channel()
                 exchange = await channel.declare_exchange(
-                    _EXCHANGE_NAME,
+                    PAYMENTS_EXCHANGE,
                     aio_pika.ExchangeType.TOPIC,
                     durable=True,
                 )
