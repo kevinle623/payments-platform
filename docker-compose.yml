@@ -1,4 +1,21 @@
+x-api-env: &api-env
+  DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/payments
+  REDIS_URL: redis://redis:6379/0
+  RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+  PROCESSOR: stripe
+  EXPENSE_ACCOUNT_ID: "00000000-0000-0000-0000-000000000001"
+  LIABILITY_ACCOUNT_ID: "00000000-0000-0000-0000-000000000002"
+  CASH_ACCOUNT_ID: "00000000-0000-0000-0000-000000000003"
+  # Stripe secrets -- set these in your shell environment or a .env file
+  # at the repo root before running docker compose up
+  STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+  STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+
 services:
+  # ------------------------------------------------------------------
+  # Infrastructure
+  # ------------------------------------------------------------------
+
   postgres:
     image: postgres:16
     environment:
@@ -9,11 +26,21 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   redis:
     image: redis:7-alpine
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   rabbitmq:
     image: rabbitmq:3-management
@@ -23,6 +50,113 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: guest
       RABBITMQ_DEFAULT_PASS: guest
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+  # ------------------------------------------------------------------
+  # API
+  # ------------------------------------------------------------------
+
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    environment:
+      <<: *api-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  # ------------------------------------------------------------------
+  # Celery Beat -- schedules outbox polling and reconciliation job
+  # ------------------------------------------------------------------
+
+  celery-beat:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    command: celery -A workers.celery_app beat --loglevel=info
+    environment:
+      <<: *api-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  # ------------------------------------------------------------------
+  # Outbox poller -- picks up pending OutboxEvents and publishes to RabbitMQ
+  # ------------------------------------------------------------------
+
+  outbox-poller:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    command: celery -A workers.celery_app worker --loglevel=info -Q celery
+    environment:
+      <<: *api-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  # ------------------------------------------------------------------
+  # RabbitMQ consumers
+  # ------------------------------------------------------------------
+
+  consumer-fraud:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    command: python -m workers.consumers.payments.fraud
+    environment:
+      <<: *api-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  consumer-notifications:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    command: python -m workers.consumers.payments.notifications
+    environment:
+      <<: *api-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  consumer-reporting:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    command: python -m workers.consumers.payments.reporting
+    environment:
+      <<: *api-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
 
 volumes:
   postgres_data:
