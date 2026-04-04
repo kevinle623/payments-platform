@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import app.fraud.models  # noqa: F401
 import app.issuer.auth.models  # noqa: F401
+import app.notifications.models  # noqa: F401
 import app.issuer.cards.models  # noqa: F401
 import app.issuer.controls.models  # noqa: F401
 import app.ledger.models  # noqa: F401

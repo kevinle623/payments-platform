@@ -86,6 +86,8 @@ async def authorize(
                 "amount": record.amount,
                 "currency": record.currency,
                 "idempotency_key": record.idempotency_key,
+                # card_id is optional -- only present when issuer track is used
+                "card_id": str(request.card_id) if request.card_id else None,
             },
         )
         await session.commit()

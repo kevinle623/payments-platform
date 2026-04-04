@@ -4,10 +4,12 @@ from logging.config import fileConfig
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+import app.fraud.models  # noqa: F401
 import app.issuer.auth.models  # noqa: F401
 import app.issuer.cards.models  # noqa: F401
 import app.issuer.controls.models  # noqa: F401
 import app.ledger.models  # noqa: F401
+import app.notifications.models  # noqa: F401
 import app.outbox.models  # noqa: F401
 import app.payments.models  # noqa: F401
 from alembic import context
