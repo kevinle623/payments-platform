@@ -470,3 +470,28 @@ Reserved for async side effects: fraud scoring, notifications, reporting.
 - `get_logger(__name__)` from `shared/logger.py` for logging
 - Clean separation: router handles HTTP, service handles business logic, repository handles DB I/O
 - No cross-module repository calls -- only cross-module service calls
+
+---
+
+## Mandatory checklist when adding a new SQLAlchemy model
+
+**ALWAYS do all three of these every time a new model is created -- no exceptions:**
+
+1. **`alembic/env.py`** -- add an import for the new model module so `alembic revision --autogenerate` picks it up:
+   ```python
+   import app.mymodule.models  # noqa: F401
+   ```
+   Without this, autogenerate produces an empty migration even though the model exists.
+
+2. **`tests/conftest.py`** -- add the same import so `Base.metadata.create_all()` creates the table in the test DB:
+   ```python
+   import app.mymodule.models  # noqa: F401
+   ```
+   Without this, tests that touch the new table will fail with "relation does not exist".
+
+3. **Migration workflow** -- never hand-write migration files. Always:
+   ```bash
+   cd apps/api && poetry run alembic revision --autogenerate -m "create mymodule table"
+   # review the generated file, then:
+   poetry run alembic upgrade head
+   ```

@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.fraud.router import router as fraud_router
 from app.issuer.cards.router import router as issuer_router
 from app.payments.router import router as payments_router
+from app.reporting.router import router as reporting_router
 from shared.exception_handlers import register_exception_handlers
 
 app = FastAPI(title="Payments Platform")
@@ -20,6 +21,7 @@ register_exception_handlers(app)
 app.include_router(payments_router)
 app.include_router(issuer_router)
 app.include_router(fraud_router)
+app.include_router(reporting_router)
 
 
 @app.get("/_live")

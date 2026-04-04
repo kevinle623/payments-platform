@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 import app.fraud.models  # noqa: F401
 import app.issuer.auth.models  # noqa: F401
+import app.reporting.models  # noqa: F401
 import app.issuer.cards.models  # noqa: F401
 import app.issuer.controls.models  # noqa: F401
 import app.ledger.models  # noqa: F401
