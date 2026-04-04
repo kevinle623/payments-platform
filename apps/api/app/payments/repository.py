@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -100,6 +102,19 @@ async def fail(
         return None
     updated = await _update_status(session, payment, PaymentStatus.FAILED)
     return PaymentRecord.model_validate(updated)
+
+
+async def get_settled_since(
+    session: AsyncSession,
+    since: datetime,
+) -> list[PaymentRecord]:
+    result = await session.execute(
+        select(Payment)
+        .where(Payment.status == PaymentStatus.SUCCEEDED)
+        .where(Payment.created_at >= since)
+        .order_by(Payment.created_at)
+    )
+    return [PaymentRecord.model_validate(row) for row in result.scalars().all()]
 
 
 async def refund_payment(

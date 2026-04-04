@@ -50,8 +50,6 @@ class Payment(Base):
         Index("ix_payments_idempotency_key", "idempotency_key"),
         # webhook handler looks up by processor_payment_id
         Index("ix_payments_processor_payment_id", "processor_payment_id"),
-        # status filtering -- e.g. find all pending payments
-        Index("ix_payments_status", "status"),
-        # reconciliation -- payments within a time range
-        Index("ix_payments_created_at", "created_at"),
+        # reconciliation job -- WHERE status = 'settled' AND created_at >= window
+        Index("ix_payments_status_created_at", "status", "created_at"),
     )

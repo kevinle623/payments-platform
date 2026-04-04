@@ -1,6 +1,6 @@
 # payments-platform
 
-A FastAPI + Next.js payments platform that integrates Stripe PaymentIntents, records double-entry ledger entries, handles webhooks, and ships with a demo frontend for end-to-end testing—built with Dockerized Postgres/Redis and a Celery + RabbitMQ outbox pipeline for reliable async event fan-out.
+A payments platform monorepo implementing acquiring-side payment orchestration and issuer-side card simulation. Built with FastAPI, Stripe, a double-entry ledger, and a full async event pipeline via Celery and RabbitMQ.
 
 ## Tech stack
 
@@ -10,66 +10,79 @@ A FastAPI + Next.js payments platform that integrates Stripe PaymentIntents, rec
 | Web | Next.js 16 (App Router), TypeScript, Tailwind CSS v4, Bun, Stripe.js |
 | Infra | PostgreSQL, Redis, RabbitMQ, Docker Compose |
 | Payments | Stripe PaymentIntents (manual capture) |
+| Workers | Celery + Celery Beat, aio-pika |
 
-## Architecture overview
+## What this is
 
-- API: Functional services and repositories; repositories return Pydantic DTOs, services own transaction boundaries and commits; processor abstraction via `PaymentProcessor` Protocol with `StripeAdapter`; FastAPI exception handlers map domain errors.
-- Payments: `POST /payments/authorize` creates a PaymentIntent and writes ledger authorization entries; webhooks (`payment_intent.succeeded`, refunds) drive settlement and ledger updates; idempotency on authorize to reuse an existing intent.
-- Ledger: Double-entry model with accounts, transactions, and entries; every event writes balanced debit and credit rows.
-- Frontend: Next.js App Router demo page using Stripe Elements; calls API for authorization then confirms client-side with Stripe.js.
-- Outbox (planned): During the same DB transaction as ledger writes, an outbox row is stored. A Celery worker publishes outbox events to RabbitMQ with retries and marks them sent.
-- Consumers (planned): RabbitMQ consumers perform side effects off the critical path, such as notifications, fraud checks, and reporting.
-- Reconciliation (planned): Nightly job compares ledger state with Stripe (and other processors if added) to flag drift.
-- Observability: Logging via shared logger; liveness endpoint at `/_live`.
+Two tracks running together:
+
+**Acquiring track** -- integrates with Stripe to authorize, capture, and refund payments. Every payment event is backed by double-entry ledger entries so debits always equal credits.
+
+**Issuer track** -- simulates the card network side. When a payment is authorized with a `card_id`, the issuer engine runs spend controls (balance check, MCC block, velocity limits) and decides to approve or decline before Stripe is ever called. On settlement, issuer holds are cleared atomically.
+
+## End-to-end flow
+
+### Authorization
+1. Frontend calls `POST /payments/authorize` with amount, currency, and optional `card_id`
+2. If `card_id` provided: issuer evaluates controls (balance, MCC block, velocity) -- declines with HTTP 402 if any check fails
+3. Stripe PaymentIntent created (manual capture mode)
+4. Payment record + ledger authorization entries written atomically
+5. Outbox event (`payment.authorized`) written in the same transaction
+6. `client_secret` returned to frontend
+
+### Payment confirmation
+7. Frontend renders Stripe Elements using `client_secret`
+8. User enters card details and submits -- Stripe.js confirms the intent
+9. Stripe fires `payment_intent.succeeded` webhook to `POST /payments/webhooks/stripe`
+10. Webhook handler: settles payment record + writes ledger settlement entries + clears issuer hold + writes outbox event (`payment.settled`) -- all in one transaction
+
+### Async side effects
+11. Celery Beat fires every 10 seconds -- outbox poller queries pending rows, publishes to RabbitMQ `payments` topic exchange
+12. Three consumers process events independently from their own durable queues:
+    - `payments.fraud` -- scores risk on `payment.authorized`
+    - `payments.notifications` -- sends simulated notifications on all payment events
+    - `payments.reporting` -- logs analytics entries on all payment events
+
+### Reconciliation
+13. Celery Beat fires nightly -- reconciliation job queries settled payments and compares against Stripe, logging any status mismatches
 
 ## Project structure
 
 ```
 payments-platform/
   apps/
-    api/                  FastAPI backend
+    api/                      FastAPI backend (see apps/api/README.md)
       app/
-        payments/         payment processing (authorize, capture, refund, webhooks)
-        ledger/           double-entry ledger (transactions, entries, accounts)
-      shared/             DB, processors, enums, exceptions, config
-      alembic/            migrations
-      scripts/            seed scripts
-      tests/              pytest suite (ledger present, payments planned)
-      main.py             app entry point
-    web/                  Next.js frontend
-      src/app             App Router pages
-      src/components      Checkout form with Stripe Elements
-  docker-compose.yml      Postgres, Redis, RabbitMQ
+        payments/             payment processing (authorize, capture, refund, webhooks)
+        ledger/               double-entry ledger (accounts, transactions, entries)
+        issuer/
+          auth/               evaluate() -- controls engine, IssuerAuthorization
+          cards/              Cardholder + Card models, per-card ledger accounts
+          controls/           MCCBlock, VelocityRule, check_controls()
+          settlement/         clear_hold() -- clears issuer hold on settlement
+        outbox/               OutboxEvent model, publish_event(), repository
+      shared/                 DB, processors, enums, exceptions, settings, logger
+      workers/
+        exchanges.py          PAYMENTS_EXCHANGE, ISSUER_EXCHANGE constants
+        producers/payments/   outbox_poller -- reads DB, publishes to RabbitMQ
+        consumers/payments/   fraud, notifications, reporting consumers
+        jobs/payments/        reconciliation -- nightly Stripe comparison
+      alembic/                migrations
+      scripts/                seed scripts
+      tests/                  pytest suite
+    web/                      Next.js dummy frontend for E2E testing
+  docker-compose.yml          Postgres, Redis, RabbitMQ
+  Makefile                    common dev commands
 ```
-
-## Data flow (implemented)
-
-1. Frontend calls `POST /payments/authorize`, API creates PaymentIntent (manual capture) and ledger authorization entries, returns `client_secret`.
-2. Stripe Elements confirms the intent; Stripe finalizes authorization or success.
-3. Stripe webhook hits `/payments/webhooks/stripe`; API verifies signature and dispatches to payment service.
-4. Service settles payment record and writes ledger settlement entries in a single transaction.
-5. Idempotent authorize reuses an existing intent instead of creating a new one.
-
-## Asynchronous processing (planned)
-
-- Outbox table written in the same transaction as ledger changes.
-- Celery worker polls outbox, publishes to RabbitMQ with at-least-once semantics, marks rows as sent.
-- Dedicated consumers handle notifications, fraud checks, reporting, and any downstream integrations without blocking the checkout path.
-
-## Reconciliation (planned)
-
-- Scheduled job compares internal ledger balances and payment records against Stripe data.
-- Flags discrepancies and can emit reconciliation events through the same outbox and consumer pipeline.
 
 ## Getting started
 
 ### Prerequisites
 
-- Python 3.13+
-- Poetry
+- Python 3.13+, Poetry
 - Bun
 - Docker and Docker Compose
-- Stripe test account
+- Stripe test account + Stripe CLI
 
 ### 1. Start infrastructure
 
@@ -81,13 +94,11 @@ make infra
 
 ```bash
 cd apps/api
-cp .env.example .env   # fill in STRIPE_SECRET_KEY etc.
+cp .env.example .env   # fill in STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET
 poetry install
 make migrate
 make seed
 ```
-
-API runs at `http://localhost:8000`.
 
 ### 3. Set up the frontend
 
@@ -98,15 +109,13 @@ echo 'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_YOUR_KEY' > .env.local
 echo 'NEXT_PUBLIC_API_URL=http://localhost:8000' >> .env.local
 ```
 
-Frontend runs at `http://localhost:3000`.
-
-### 4. Start everything
+### 4. Start API and frontend
 
 ```bash
-make dev   # starts infra + api + web concurrently
+make dev
 ```
 
-Or start each individually:
+Or individually:
 
 ```bash
 make api   # FastAPI on :8000
@@ -119,42 +128,57 @@ make web   # Next.js on :3000
 stripe listen --forward-to localhost:8000/payments/webhooks/stripe
 ```
 
-Copy the printed `whsec_...` into `apps/api/.env` as `STRIPE_WEBHOOK_SECRET` and restart the API if it changes.
+Copy the printed `whsec_...` into `apps/api/.env` as `STRIPE_WEBHOOK_SECRET` and restart the API.
+
+### 6. Start async workers (optional)
+
+```bash
+# from apps/api/
+
+# Celery worker (runs outbox poller + reconciliation tasks)
+poetry run celery -A workers.celery_app worker --loglevel=info
+
+# Celery Beat scheduler
+poetry run celery -A workers.celery_app beat --loglevel=info
+
+# RabbitMQ consumers (each in a separate terminal)
+poetry run python -m workers.consumers.payments.fraud
+poetry run python -m workers.consumers.payments.notifications
+poetry run python -m workers.consumers.payments.reporting
+```
 
 ## Make targets
-
-Run `make help` to see all targets. Common ones:
 
 | Target | Description |
 |--------|-------------|
 | `make infra` | Start Postgres, Redis, RabbitMQ |
 | `make infra-down` | Stop infrastructure |
 | `make infra-reset` | Stop infrastructure and destroy volumes |
-| `make infra-logs` | Tail infrastructure logs |
-| `make dev` | Start infra + api + web concurrently |
+| `make dev` | Start infra + API + web concurrently |
 | `make api` | Start FastAPI dev server |
 | `make web` | Start Next.js dev server |
 | `make migrate` | Run Alembic migrations |
-| `make downgrade` | Rollback one migration |
 | `make migration` | Create a new migration (prompts for name) |
+| `make downgrade` | Rollback one migration |
 | `make seed` | Seed ledger accounts |
-| `make lint` | Fix lint and format issues (api + web) |
-| `make typecheck` | Run mypy (api) and tsc (web) |
 | `make test` | Run all tests |
 | `make test-api` | Run pytest only |
-| `make test-web` | Run web tests only |
-| `make test-watch` | Run web tests in watch mode |
-| `make check` | Read-only lint + typecheck + all tests (CI) |
-| `make clean` | Remove `__pycache__`, `.mypy_cache`, `.ruff_cache`, `*.pyc` |
+| `make lint` | Fix lint and format |
+| `make check` | Read-only lint + typecheck + tests (CI) |
 
 ## API endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/payments/authorize` | Create PaymentIntent and ledger authorization entries |
+| POST | `/payments/authorize` | Authorize payment -- runs issuer controls if card_id provided, creates Stripe PaymentIntent, writes ledger entries |
 | POST | `/payments/capture` | Capture an authorized payment |
 | POST | `/payments/refund` | Refund a captured payment |
-| POST | `/payments/webhooks/stripe` | Stripe webhook receiver |
+| POST | `/payments/webhooks/stripe` | Stripe webhook receiver (succeeds, refunds) |
+| POST | `/issuer/cardholders` | Create a cardholder |
+| POST | `/issuer/cards` | Issue a card with credit limit |
+| GET  | `/issuer/cards/{id}/balance` | Get available credit and pending holds |
+| POST | `/issuer/cards/{id}/controls/mcc-blocks` | Block an MCC category |
+| POST | `/issuer/cards/{id}/controls/velocity-rules` | Add a velocity spend limit |
 | GET  | `/_live` | Liveness check |
 
 ## Environment variables
@@ -165,17 +189,17 @@ Run `make help` to see all targets. Common ones:
 |----------|----------|-------------|
 | `STRIPE_SECRET_KEY` | Yes | Stripe secret key (`sk_test_...`) |
 | `STRIPE_WEBHOOK_SECRET` | Yes | Stripe webhook signing secret (`whsec_...`) |
-| `DATABASE_URL` | No | PostgreSQL connection string (default: `postgresql+asyncpg://postgres:postgres@localhost:5432/payments`) |
-| `REDIS_URL` | No | Redis connection string (default: `redis://localhost:6379/0`) |
-| `RABBITMQ_URL` | No | RabbitMQ connection string (default: `amqp://guest:guest@localhost:5672/`) |
-| `PROCESSOR` | No | Payment processor to use (default: `stripe`) |
-| `EXPENSE_ACCOUNT_ID` | No | Ledger expense account UUID |
-| `LIABILITY_ACCOUNT_ID` | No | Ledger liability account UUID |
-| `CASH_ACCOUNT_ID` | No | Ledger cash account UUID |
+| `DATABASE_URL` | No | PostgreSQL connection string |
+| `REDIS_URL` | No | Redis connection string |
+| `RABBITMQ_URL` | No | RabbitMQ connection string |
+| `PROCESSOR` | No | Payment processor (default: `stripe`) |
+| `EXPENSE_ACCOUNT_ID` | No | Platform ledger expense account UUID |
+| `LIABILITY_ACCOUNT_ID` | No | Platform ledger liability account UUID |
+| `CASH_ACCOUNT_ID` | No | Platform ledger cash account UUID |
 
 ### Web (`apps/web/.env.local`)
 
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Yes | Stripe publishable key (`pk_test_...`) |
-| `NEXT_PUBLIC_API_URL` | No | API base URL for the frontend (default: `http://localhost:8000`) |
+| `NEXT_PUBLIC_API_URL` | No | API base URL (default: `http://localhost:8000`) |

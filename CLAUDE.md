@@ -64,7 +64,7 @@ payments-platform/              (monorepo root)
         exception_handlers.py   -- FastAPI exception handlers
         logger.py               -- get_logger(__name__)
       workers/
-        celery_app.py           -- Celery app, broker config, Beat schedule (poll every 10s)
+        celery_app.py           -- Celery app, broker config, Beat schedule (outbox every 10s, reconciliation every 24h)
         exchanges.py            -- PAYMENTS_EXCHANGE, ISSUER_EXCHANGE constants (single source of truth)
         producers/
           payments/
@@ -76,6 +76,10 @@ payments-platform/              (monorepo root)
             notifications.py    -- payment.* -> simulated email/SMS notification
             reporting.py        -- payment.* -> simulated analytics entry
           issuer/               -- future: card.issued, dispute.opened, hold.expired consumers
+        jobs/
+          payments/
+            reconciliation.py   -- nightly Celery task: queries settled payments, compares against Stripe, logs mismatches
+          issuer/               -- future: hold expiry, dispute aging
       scripts/
         seed.py                 -- seeds ledger accounts into DB
       alembic/                  -- migrations
@@ -128,13 +132,178 @@ payments-platform/              (monorepo root)
 - `card_id` optional on `AuthorizeRequest` -- triggers full issuer controls when provided, backwards compatible when omitted
 - `PaymentDeclinedException` -- HTTP 402, raised when issuer declines before Stripe is called
 - Outbox pattern -- `OutboxEvent` rows written atomically in the same DB transaction as payment/ledger writes; Celery Beat fires every 10s, worker queries pending rows and publishes to RabbitMQ `payments` topic exchange via aio-pika, marks rows published/failed; `(status, created_at)` composite index covers the poller query; engine created fresh per task invocation (not reused from postgresql.py) to avoid asyncio event loop mismatch across `asyncio.run()` calls
-- RabbitMQ consumers -- three long-running async consumers (fraud, notifications, reporting) subscribe to the `payments` topic exchange via named durable queues; `prefetch_count=1` for one-at-a-time processing; `exchanges.py` is single source of truth for exchange names; producers under `workers/producers/`, consumers under `workers/consumers/`, both organized by domain for extensibility
+- RabbitMQ consumers -- three long-running async consumers (fraud, notifications, reporting) subscribe to the `payments` topic exchange via named durable queues; `prefetch_count=1` for one-at-a-time processing; `exchanges.py` is single source of truth for exchange names; producers under `workers/producers/`, consumers under `workers/consumers/`, jobs under `workers/jobs/`, all organized by domain
+- Reconciliation job -- nightly Celery Beat task (`workers/jobs/payments/reconciliation.py`); queries settled payments in last 24h using composite `ix_payments_status_created_at` index; calls `stripe.PaymentIntent.retrieve()` for each; logs warnings on status mismatches; separate `jobs/` directory distinguishes scheduled jobs from message producers/consumers
 
 ---
 
 ## What's not yet built
-- Reconciliation job -- Celery Beat nightly job comparing ledger against Stripe records
-- Docker Compose services for workers/consumers (deferred until reconciliation is done and logic is non-trivial)
+- Docker Compose services for workers/consumers/jobs (deferred -- logic is currently logging stubs)
+- Reconciliation discrepancy persistence (currently logs only -- no DB table yet)
+- RabbitMQ consumer dead-lettering for failed messages
+- Fraud signals persistence
+- Real notification delivery (email/SMS)
+- Reporting persistence and aggregation
+- Issuer outbox events and issuer-side consumers/jobs
+- Bill payments module
+- Web UI dashboard (payment tracing, card management, issuer decisions, fraud signals)
+
+---
+
+## Iteration 2 -- real implementations (current focus)
+
+The async pipeline is wired end-to-end but all consumers and the reconciliation job are logging stubs. The goal of iteration 2 is to make each one functionally real.
+
+### Task 1 -- Fraud: persist risk signals
+- Add `app/fraud/` module with `FraudSignal` model (`payment_id`, `risk_level`, `amount`, `currency`, `flagged_at`)
+- Consumer writes a `FraudSignal` row instead of just logging
+- Add `GET /fraud/signals` endpoint to query flagged payments
+- Index on `(risk_level, flagged_at)` for dashboard queries
+- Add `FraudSignalDTO` and tests
+
+### Task 2 -- Notifications: real delivery
+- Add `email` field to `Cardholder` model (migration required)
+- Add `app/notifications/` module with `NotificationLog` model (`cardholder_id`, `event_type`, `channel`, `message`, `sent_at`)
+- Integrate a delivery provider -- use SMTP (smtplib) or stub with a mock transport behind a `NotificationSender` Protocol so it's swappable
+- Consumer looks up cardholder from `card_id` in payload, sends notification, writes log row
+- Add tests covering log persistence and mock delivery
+
+### Task 3 -- Reporting: persist events and aggregate
+- Add `app/reporting/` module with `ReportingEvent` model (`event_type`, `payment_id`, `amount`, `currency`, `recorded_at`)
+- Consumer writes a `ReportingEvent` row per payment lifecycle event
+- Add `GET /reporting/summary` endpoint -- daily volume grouped by currency and event type
+- Index on `(event_type, recorded_at)` for summary queries
+- Add tests
+
+### Task 4 -- Reconciliation: persist discrepancies
+- Add `ReconciliationRun` model (`started_at`, `completed_at`, `checked`, `mismatches`) and `ReconciliationDiscrepancy` model (`payment_id`, `processor_payment_id`, `our_status`, `stripe_status`, `detected_at`) in `app/reconciliation/`
+- Job writes a `ReconciliationRun` row and a `ReconciliationDiscrepancy` row per mismatch instead of just logging
+- Wire discrepancies into the notifications consumer -- publish a `reconciliation.mismatch` outbox event so the notifications consumer can alert
+- Add `GET /reconciliation/runs` and `GET /reconciliation/discrepancies` endpoints
+- Add tests
+
+### Task 5 -- Docker Compose: add worker services
+- Add `outbox-poller`, `celery-beat`, `consumer-fraud`, `consumer-notifications`, `consumer-reporting` services to `docker-compose.yml`
+- Add a shared `Dockerfile` for the API image
+- All worker services share the same image, different `command`
+- Wire `depends_on` to postgres and rabbitmq
+
+---
+
+## Iteration 2 -- issuer workers
+
+The issuer track currently has no outbox events and no async side effects. This extends the worker infrastructure to cover issuer-side lifecycle events using the same producer/consumer/jobs pattern.
+
+### Task 6 -- Issuer outbox events
+- Add issuer event types to `OutboxEventType`: `card.issued`, `auth.approved`, `auth.declined`, `hold.created`, `hold.cleared`
+- Publish `card.issued` in `issuer/cards/service.py` after card creation
+- Publish `auth.approved` / `auth.declined` in `issuer/auth/service.py` after evaluate()
+- Publish `hold.created` in `ledger/service.py` after record_hold()
+- Publish `hold.cleared` in `issuer/settlement/service.py` after clear_hold()
+- All written in the same DB transaction as the triggering operation -- same outbox pattern
+
+### Task 7 -- Issuer consumers (`workers/consumers/issuer/`)
+Add `ISSUER_EXCHANGE = "issuer"` (already in `exchanges.py`) and a dedicated issuer outbox poller that publishes to it. Then add consumers:
+
+- `card_activity.py` -- subscribes to `card.issued`, `hold.created`, `hold.cleared`; logs card lifecycle (future: write to card activity feed)
+- `risk.py` -- subscribes to `auth.approved`, `auth.declined`; scores issuer-side risk patterns (velocity of declines, unusual MCC patterns); future: feed into fraud module
+
+Need a second outbox poller for the issuer exchange or extend the existing poller to fan out to multiple exchanges based on event type prefix (`payment.*` vs `card.*` / `auth.*` / `hold.*`).
+
+### Task 8 -- Issuer jobs (`workers/jobs/issuer/`)
+- `hold_expiry.py` -- Celery Beat job (runs hourly); finds `IssuerAuthorization` rows that are APPROVED and older than the hold expiry window (e.g. 7 days) with no corresponding settlement; calls `clear_hold()` and marks authorization as EXPIRED; prevents stale holds from permanently blocking available credit
+- Future: `dispute_aging.py` -- escalate disputes that haven't been resolved within SLA
+
+---
+
+## Web UI dashboard -- next initiative
+
+The current frontend is a minimal Stripe Elements checkout form. The goal is to extend it into a dev dashboard that visualizes the full payment lifecycle and lets you interact with the issuer track directly -- useful for E2E testing without hitting curl or the DB directly.
+
+### Pages to build
+
+**Payment flow (acquiring side)**
+- `/ ` -- existing checkout page (keep as-is, entry point for triggering a payment)
+- `/payments` -- paginated list of payments with id, amount, currency, status, created_at; click to drill in
+- `/payments/[id]` -- payment detail: status timeline, ledger entries (debit/credit table), outbox events emitted, issuer auth decision if card was used, processor payment id link
+
+**Issuer track**
+- `/cards` -- list all cards with cardholder name, last four, credit limit, available credit, pending holds; button to issue a new card
+- `/cards/[id]` -- card detail: balance breakdown, spend controls (MCC blocks + velocity rules) with add/remove UI, recent authorizations with approve/decline badge and decline reason
+- `/cardholders` -- list cardholders, create new cardholder form
+
+**Observability**
+- `/fraud` -- list of fraud signals with risk level badge, payment id, amount, flagged_at (requires iteration 2 task 1)
+- `/reconciliation` -- list of reconciliation runs with checked/mismatch counts; expand a run to see individual discrepancies (requires iteration 2 task 4)
+- `/reporting` -- daily volume chart grouped by currency; event type breakdown (authorized vs settled vs refunded) (requires iteration 2 task 3)
+
+### API endpoints to add (backend)
+To support the dashboard, add read endpoints that don't exist yet:
+- `GET /payments` -- paginated list with optional status filter
+- `GET /payments/{id}` -- payment detail including ledger entries and outbox events
+- `GET /issuer/cards` -- list all cards
+- `GET /issuer/cardholders` -- list all cardholders
+- `GET /issuer/cards/{id}/authorizations` -- auth history for a card
+- `GET /fraud/signals` -- list fraud signals (iteration 2)
+- `GET /reconciliation/runs` -- list reconciliation runs (iteration 2)
+- `GET /reporting/summary` -- daily volume summary (iteration 2)
+
+### Tech approach
+- Next.js App Router pages with server components for data fetching
+- Tailwind CSS for styling (already set up)
+- No new dependencies needed beyond what's already in `apps/web/`
+- Mock data where backend endpoints don't exist yet -- use a `USE_MOCK` flag per page so the UI can be built ahead of the API
+
+### Build order
+1. `/payments` list and `/payments/[id]` detail -- most useful for tracing the existing E2E flow
+2. `/cards` and `/cards/[id]` -- issuer track interaction
+3. `/cardholders` -- cardholder management
+4. `/fraud`, `/reconciliation`, `/reporting` -- after iteration 2 backend tasks are done
+
+---
+
+## Bill payments -- next initiative
+
+Goal: extend the platform to support scheduled and recurring bill payments (utilities, rent, subscriptions) on top of the existing payment and ledger infrastructure.
+
+### Why this is a natural extension
+- Existing `payments` module handles one-off authorized payments -- bill payments need scheduling, recurrence, and payee management
+- The ledger already supports any debit/credit pattern -- bill payments just introduce a new posting policy
+- Outbox + RabbitMQ pipeline can drive bill due-date reminders and execution events
+- Issuer controls (velocity limits, MCC blocks) can apply to bill payments with no changes
+
+### New domains to add
+- `app/bills/` -- Bill model (payee, amount, due_date, recurrence_rule, status), BillPayment model (bill_id, payment_id, scheduled_for, executed_at)
+- `app/payees/` -- Payee model (name, category, bank details or processor reference)
+
+### Recurrence engine
+- Store recurrence as a simple rule: `MONTHLY`, `WEEKLY`, `ANNUAL`, or a cron expression
+- Celery Beat job under `workers/jobs/bills/scheduler.py` runs daily, finds bills due within the next N days, creates scheduled `BillPayment` rows
+- A second job `workers/jobs/bills/executor.py` runs more frequently, finds due `BillPayment` rows, calls `payment_service.authorize()` then `capture()` -- reuses existing acquiring flow entirely
+
+### Ledger impact
+- Bill payments post to existing ledger accounts -- no new account types needed
+- Add `bill_payment_id` as an optional reference on `LedgerTransaction` for traceability
+
+### Events
+- Add `bill.scheduled`, `bill.executed`, `bill.failed` to `OutboxEventType`
+- Notifications consumer handles `bill.scheduled` (upcoming reminder) and `bill.failed` (alert)
+- Reporting consumer handles all bill events for analytics
+
+### New API endpoints
+- `POST /bills` -- create a bill with payee, amount, recurrence
+- `GET /bills` -- list bills with status
+- `GET /bills/{id}/payments` -- history of executions
+- `POST /payees` -- register a payee
+
+### Build order
+1. `app/payees/` -- Payee model and CRUD
+2. `app/bills/` -- Bill + BillPayment models, service, repository
+3. `workers/jobs/bills/scheduler.py` -- daily job to generate BillPayment rows
+4. `workers/jobs/bills/executor.py` -- execution job calling existing authorize + capture
+5. Outbox events for bill lifecycle
+6. Notification + reporting consumer handlers for bill events
+7. Tests covering recurrence scheduling, execution, and failure handling
 
 ---
 
