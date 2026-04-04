@@ -3,6 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.issuer.auth import repository as auth_repository
 from app.issuer.cards import repository as cards_repository
 from app.ledger import service as ledger_service
+from app.outbox import service as outbox_service
+from app.outbox.models import OutboxEventType
 from shared.logger import get_logger
 
 logger = get_logger(__name__)
@@ -50,6 +52,16 @@ async def clear_hold(
         available_balance_account_id=card.available_balance_account_id,
         amount=amount,
         description=f"settlement clear hold for authorization {issuer_auth.id}",
+    )
+
+    await outbox_service.publish_event(
+        session,
+        event_type=OutboxEventType.HOLD_CLEARED,
+        payload={
+            "card_id": str(card.id),
+            "authorization_id": str(issuer_auth.id),
+            "amount": amount,
+        },
     )
 
     logger.info(

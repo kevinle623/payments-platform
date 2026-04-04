@@ -26,5 +26,7 @@ class ReportingEvent(Base):
 
     __table_args__ = (
         # summary query groups and filters by event_type and recorded_at
-        Index("ix_reporting_events_event_type_recorded_at", "event_type", "recorded_at"),
+        Index(
+            "ix_reporting_events_event_type_recorded_at", "event_type", "recorded_at"
+        ),
     )

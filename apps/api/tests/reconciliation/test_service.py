@@ -3,8 +3,10 @@ import uuid
 import pytest
 
 from app.reconciliation import repository, service
-from app.reconciliation.schemas import ReconciliationDiscrepancyDTO, ReconciliationRunDTO
-
+from app.reconciliation.schemas import (
+    ReconciliationDiscrepancyDTO,
+    ReconciliationRunDTO,
+)
 
 # -- runs --
 
@@ -204,7 +206,5 @@ async def test_full_run_lifecycle(session):
     assert completed.checked == 10
     assert completed.mismatches == 3
 
-    discrepancies = await service.list_discrepancies(
-        session=session, run_id=run.id
-    )
+    discrepancies = await service.list_discrepancies(session=session, run_id=run.id)
     assert len(discrepancies) == 3

@@ -8,6 +8,8 @@ from app.ledger.schemas import (
     LedgerEntryDTO,
     LedgerTransactionResponse,
 )
+from app.outbox import service as outbox_service
+from app.outbox.models import OutboxEventType
 from shared.enums.currency import Currency
 from shared.exceptions import LedgerImbalanceError
 from shared.logger import get_logger
@@ -102,7 +104,18 @@ async def record_hold(
         LedgerEntryDTO(account_id=available_balance_account_id, amount=-amount),
         LedgerEntryDTO(account_id=pending_hold_account_id, amount=amount),
     ]
-    return await _record_transaction(session, description, entries)
+    result = await _record_transaction(session, description, entries)
+    await outbox_service.publish_event(
+        session,
+        event_type=OutboxEventType.HOLD_CREATED,
+        payload={
+            "available_balance_account_id": str(available_balance_account_id),
+            "pending_hold_account_id": str(pending_hold_account_id),
+            "amount": amount,
+            "description": description,
+        },
+    )
+    return result
 
 
 async def record_clear_hold(

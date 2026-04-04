@@ -7,7 +7,8 @@
       "Bash(make help:*)",
       "Bash(ls /Users/kevinle/Developer/payments-platform/*.md)",
       "Bash(poetry run:*)",
-      "Bash($HOME/.local/bin/poetry run:*)"
+      "Bash($HOME/.local/bin/poetry run:*)",
+      "Bash(python -m pytest tests/issuer/ tests/ledger/ -x -q)"
     ]
   }
 }

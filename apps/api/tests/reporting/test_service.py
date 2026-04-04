@@ -6,7 +6,6 @@ import pytest
 from app.reporting import service
 from app.reporting.schemas import ReportingEventDTO, ReportingSummaryEntry
 
-
 # -- helpers --
 
 

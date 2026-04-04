@@ -9,6 +9,8 @@ from app.issuer.cards import repository as cards_repository
 from app.issuer.cards.models import CardStatus
 from app.issuer.controls import service as controls_service
 from app.ledger import service as ledger_service
+from app.outbox import service as outbox_service
+from app.outbox.models import OutboxEventType
 from shared.enums.currency import Currency
 from shared.logger import get_logger
 
@@ -91,5 +93,21 @@ async def evaluate(
             amount=amount,
             description=f"hold for authorization {record.id}",
         )
+
+    event_type = (
+        OutboxEventType.AUTH_APPROVED
+        if decision == IssuerAuthDecision.APPROVED
+        else OutboxEventType.AUTH_DECLINED
+    )
+    payload: dict = {
+        "authorization_id": str(record.id),
+        "card_id": str(card_id) if card_id is not None else None,
+        "amount": amount,
+        "currency": currency,
+        "idempotency_key": idempotency_key,
+    }
+    if decision == IssuerAuthDecision.DECLINED:
+        payload["decline_reason"] = decline_reason
+    await outbox_service.publish_event(session, event_type=event_type, payload=payload)
 
     return record

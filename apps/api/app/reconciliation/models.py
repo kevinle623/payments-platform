@@ -29,9 +29,7 @@ class ReconciliationRun(Base):
         back_populates="run"
     )
 
-    __table_args__ = (
-        Index("ix_reconciliation_runs_started_at", "started_at"),
-    )
+    __table_args__ = (Index("ix_reconciliation_runs_started_at", "started_at"),)
 
 
 class ReconciliationDiscrepancy(Base):

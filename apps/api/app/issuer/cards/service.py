@@ -6,6 +6,8 @@ from app.issuer.cards import repository
 from app.issuer.cards.schemas import CardBalanceResponse, CardDTO, CardholderDTO
 from app.ledger import repository as ledger_repository
 from app.ledger.models import LedgerAccount
+from app.outbox import service as outbox_service
+from app.outbox.models import OutboxEventType
 from shared.enums.currency import Currency
 from shared.exceptions import PaymentNotFoundError
 from shared.logger import get_logger
@@ -60,6 +62,18 @@ async def create_card(
         available_balance_account_id=available_balance_account.id,
         pending_hold_account_id=pending_hold_account.id,
         last_four=last_four,
+    )
+
+    await outbox_service.publish_event(
+        session,
+        event_type=OutboxEventType.CARD_ISSUED,
+        payload={
+            "card_id": str(card.id),
+            "cardholder_id": str(cardholder_id),
+            "credit_limit": credit_limit,
+            "currency": str(currency),
+            "last_four": last_four,
+        },
     )
 
     logger.info(

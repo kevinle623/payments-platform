@@ -5,8 +5,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.reconciliation.models import ReconciliationDiscrepancy, ReconciliationRun
-from app.reconciliation.schemas import ReconciliationDiscrepancyDTO, ReconciliationRunDTO
-
+from app.reconciliation.schemas import (
+    ReconciliationDiscrepancyDTO,
+    ReconciliationRunDTO,
+)
 
 # -- runs --
 
