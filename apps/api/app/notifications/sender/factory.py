@@ -7,7 +7,13 @@ def get_sender() -> NotificationSender:
     """Return the configured NotificationSender. Defaults to StubSender."""
     if NOTIFICATION_SENDER == SupportedNotificationSender.SMTP:
         from app.notifications.sender.adapters.smtp import SmtpSender
-        from shared.settings import SMTP_FROM, SMTP_HOST, SMTP_PASSWORD, SMTP_PORT, SMTP_USER
+        from shared.settings import (
+            SMTP_FROM,
+            SMTP_HOST,
+            SMTP_PASSWORD,
+            SMTP_PORT,
+            SMTP_USER,
+        )
 
         return SmtpSender(
             host=SMTP_HOST,
@@ -19,7 +25,11 @@ def get_sender() -> NotificationSender:
 
     if NOTIFICATION_SENDER == SupportedNotificationSender.TWILIO:
         from app.notifications.sender.adapters.twilio import TwilioSender
-        from shared.settings import TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER
+        from shared.settings import (
+            TWILIO_ACCOUNT_SID,
+            TWILIO_AUTH_TOKEN,
+            TWILIO_FROM_NUMBER,
+        )
 
         return TwilioSender(
             account_sid=TWILIO_ACCOUNT_SID,

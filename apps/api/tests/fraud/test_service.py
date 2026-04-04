@@ -100,7 +100,9 @@ async def test_list_signals_filter_by_risk_level(session):
         currency="usd",
     )
 
-    high_signals = await service.list_signals(session=session, risk_level=RiskLevel.HIGH)
+    high_signals = await service.list_signals(
+        session=session, risk_level=RiskLevel.HIGH
+    )
     assert len(high_signals) == 2
     assert all(s.risk_level == RiskLevel.HIGH for s in high_signals)
 

@@ -9,7 +9,6 @@ from app.notifications.models import NotificationChannel, NotificationLog
 from app.notifications.schemas import NotificationLogDTO
 from app.notifications.sender.adapters.stub import StubSender
 
-
 # -- fixtures --
 
 
