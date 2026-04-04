@@ -12,6 +12,7 @@ from shared.db.base import Base
 class IssuerAuthDecision(StrEnum):
     APPROVED = "approved"
     DECLINED = "declined"
+    EXPIRED = "expired"
 
 
 class IssuerAuthorization(Base):
@@ -40,4 +41,6 @@ class IssuerAuthorization(Base):
     __table_args__ = (
         Index("ix_issuer_authorizations_idempotency_key", "idempotency_key"),
         Index("ix_issuer_authorizations_decision", "decision"),
+        # hold expiry job -- WHERE decision = 'approved' AND created_at < cutoff
+        Index("ix_issuer_authorizations_decision_created_at", "decision", "created_at"),
     )

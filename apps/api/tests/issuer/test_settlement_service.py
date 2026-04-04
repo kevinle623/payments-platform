@@ -7,6 +7,7 @@ from app.issuer.auth.models import IssuerAuthDecision
 from app.issuer.cards import service as cards_service
 from app.issuer.settlement import service as settlement_service
 from app.ledger.models import LedgerEntry
+from app.outbox.models import OutboxEvent, OutboxEventType
 from shared.enums.currency import Currency
 
 # -- fixtures --
@@ -109,6 +110,46 @@ async def test_ledger_invariant_full_lifecycle_nets_to_zero(
     )
     entries = (await session.execute(select(LedgerEntry))).scalars().all()
     assert sum(e.amount for e in entries) == 0
+
+
+async def test_clear_hold_writes_hold_cleared_outbox_event(
+    session, card, approved_auth
+):
+    await settlement_service.clear_hold(
+        session, idempotency_key="idem-001", amount=5000
+    )
+    events = (
+        (
+            await session.execute(
+                select(OutboxEvent).where(
+                    OutboxEvent.event_type == OutboxEventType.HOLD_CLEARED
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(events) == 1
+    assert events[0].payload["card_id"] == str(card.id)
+    assert events[0].payload["amount"] == 5000
+
+
+async def test_clear_hold_skips_no_ledger_no_outbox_when_no_auth(session):
+    await settlement_service.clear_hold(
+        session, idempotency_key="nonexistent-key", amount=5000
+    )
+    events = (
+        (
+            await session.execute(
+                select(OutboxEvent).where(
+                    OutboxEvent.event_type == OutboxEventType.HOLD_CLEARED
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert events == []
 
 
 async def test_ledger_invariant_card_accounts_net_to_zero(session, card, approved_auth):

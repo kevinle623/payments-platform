@@ -9,6 +9,7 @@ from app.issuer.cards import service as cards_service
 from app.issuer.cards.models import Card, CardStatus
 from app.issuer.controls import service as controls_service
 from app.ledger.models import LedgerEntry
+from app.outbox.models import OutboxEvent, OutboxEventType
 from shared.enums.currency import Currency
 
 # -- fixtures --
@@ -283,3 +284,103 @@ async def test_available_credit_reduces_after_hold(session, card):
     balance = await cards_service.get_card_balance(session, card.id)
     assert balance.available_credit == 5000  # $100 - $50 = $50
     assert balance.pending_holds == 5000
+
+
+# -- outbox events --
+
+
+async def test_evaluate_approved_writes_auth_approved_outbox_event(session, card):
+    await auth_service.evaluate(
+        session,
+        idempotency_key="idem-001",
+        amount=5000,
+        currency="usd",
+        metadata={},
+        card_id=card.id,
+    )
+    events = (
+        (
+            await session.execute(
+                select(OutboxEvent).where(
+                    OutboxEvent.event_type == OutboxEventType.AUTH_APPROVED
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(events) == 1
+    assert events[0].payload["card_id"] == str(card.id)
+    assert events[0].payload["amount"] == 5000
+
+
+async def test_evaluate_declined_writes_auth_declined_outbox_event(session, card):
+    await auth_service.evaluate(
+        session,
+        idempotency_key="idem-001",
+        amount=99999,  # exceeds credit limit
+        currency="usd",
+        metadata={},
+        card_id=card.id,
+    )
+    events = (
+        (
+            await session.execute(
+                select(OutboxEvent).where(
+                    OutboxEvent.event_type == OutboxEventType.AUTH_DECLINED
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(events) == 1
+    assert events[0].payload["decline_reason"] == "insufficient_funds"
+
+
+async def test_evaluate_approved_writes_hold_created_outbox_event(session, card):
+    await auth_service.evaluate(
+        session,
+        idempotency_key="idem-001",
+        amount=5000,
+        currency="usd",
+        metadata={},
+        card_id=card.id,
+    )
+    events = (
+        (
+            await session.execute(
+                select(OutboxEvent).where(
+                    OutboxEvent.event_type == OutboxEventType.HOLD_CREATED
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(events) == 1
+    assert events[0].payload["amount"] == 5000
+
+
+async def test_evaluate_idempotency_does_not_double_write_outbox_events(session, card):
+    for _ in range(2):
+        await auth_service.evaluate(
+            session,
+            idempotency_key="idem-001",
+            amount=5000,
+            currency="usd",
+            metadata={},
+            card_id=card.id,
+        )
+    approved_events = (
+        (
+            await session.execute(
+                select(OutboxEvent).where(
+                    OutboxEvent.event_type == OutboxEventType.AUTH_APPROVED
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(approved_events) == 1

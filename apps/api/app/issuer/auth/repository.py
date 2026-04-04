@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,6 +28,33 @@ async def get_by_idempotency_key(
     if orm_object is None:
         return None
     return IssuerAuthorizationDTO.model_validate(orm_object)
+
+
+async def get_stale_approved(
+    session: AsyncSession,
+    older_than: datetime,
+) -> list[IssuerAuthorizationDTO]:
+    result = await session.execute(
+        select(IssuerAuthorization)
+        .where(IssuerAuthorization.decision == IssuerAuthDecision.APPROVED)
+        .where(IssuerAuthorization.card_id.isnot(None))
+        .where(IssuerAuthorization.created_at < older_than)
+    )
+    return [
+        IssuerAuthorizationDTO.model_validate(row) for row in result.scalars().all()
+    ]
+
+
+async def mark_expired(
+    session: AsyncSession,
+    authorization_id: uuid.UUID,
+) -> None:
+    result = await session.execute(
+        select(IssuerAuthorization).where(IssuerAuthorization.id == authorization_id)
+    )
+    auth = result.scalar_one()
+    auth.decision = IssuerAuthDecision.EXPIRED
+    await session.flush()
 
 
 async def create(
