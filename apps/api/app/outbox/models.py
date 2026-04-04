@@ -13,6 +13,7 @@ class OutboxEventType(StrEnum):
     PAYMENT_AUTHORIZED = "payment.authorized"
     PAYMENT_SETTLED = "payment.settled"
     PAYMENT_REFUNDED = "payment.refunded"
+    RECONCILIATION_MISMATCH = "reconciliation.mismatch"
 
 
 class OutboxEventStatus(StrEnum):

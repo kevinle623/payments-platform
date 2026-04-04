@@ -8,6 +8,7 @@ import app.issuer.controls.models  # noqa: F401
 import app.ledger.models  # noqa: F401
 import app.notifications.models  # noqa: F401
 import app.outbox.models  # noqa: F401
+import app.reconciliation.models  # noqa: F401
 import app.reporting.models  # noqa: F401
 import app.payments.models  # noqa: F401
 from shared.db.base import Base
