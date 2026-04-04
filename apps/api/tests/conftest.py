@@ -1,10 +1,11 @@
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import app.issuer.auth.models  # noqa: F401
 import app.issuer.cards.models  # noqa: F401
 import app.issuer.controls.models  # noqa: F401
 import app.ledger.models  # noqa: F401
+import app.outbox.models  # noqa: F401
 import app.payments.models  # noqa: F401
 from shared.db.base import Base
 

@@ -6,6 +6,8 @@ from app.issuer.auth import service as issuer_auth_service
 from app.issuer.auth.models import IssuerAuthDecision
 from app.issuer.settlement import service as issuer_settlement_service
 from app.ledger import service as ledger_service
+from app.outbox import service as outbox_service
+from app.outbox.models import OutboxEventType
 from app.payments import repository
 from app.payments.schemas import (
     AuthorizeRequest,
@@ -74,6 +76,17 @@ async def authorize(
             liability_account_id=liability_account_id,
             amount=request.amount,
             description=f"authorization for payment {record.id}",
+        )
+        await outbox_service.publish_event(
+            session,
+            event_type=OutboxEventType.PAYMENT_AUTHORIZED,
+            payload={
+                "payment_id": str(record.id),
+                "processor_payment_id": record.processor_payment_id,
+                "amount": record.amount,
+                "currency": record.currency,
+                "idempotency_key": record.idempotency_key,
+            },
         )
         await session.commit()
         logger.info(
@@ -216,6 +229,16 @@ async def handle_payment_succeeded(
             idempotency_key=record.idempotency_key,
             amount=record.amount,
         )
+        await outbox_service.publish_event(
+            session,
+            event_type=OutboxEventType.PAYMENT_SETTLED,
+            payload={
+                "payment_id": str(record.id),
+                "processor_payment_id": record.processor_payment_id,
+                "amount": record.amount,
+                "currency": record.currency,
+            },
+        )
         await session.commit()
         logger.info("Payment settled: %s", processor_payment_id)
     except Exception:
@@ -235,6 +258,16 @@ async def handle_payment_refunded(
                 processor_payment_id,
             )
             return
+        await outbox_service.publish_event(
+            session,
+            event_type=OutboxEventType.PAYMENT_REFUNDED,
+            payload={
+                "payment_id": str(record.id),
+                "processor_payment_id": record.processor_payment_id,
+                "amount": record.amount,
+                "currency": record.currency,
+            },
+        )
         await session.commit()
         logger.info("Payment refunded: %s", processor_payment_id)
     except Exception:

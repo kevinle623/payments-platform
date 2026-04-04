@@ -37,8 +37,13 @@ payments-platform/              (monorepo root)
       app/
         ledger/                 -- double-entry ledger (models, schemas, repository, service, router)
         payments/               -- payment processing (models, schemas, repository, service, router)
+        issuer/
+          auth/                 -- evaluate(), IssuerAuthorization model, decision + decline reason
+          cards/                -- Cardholder, Card models, per-card ledger accounts, balance endpoint
+          controls/             -- MCCBlock, VelocityRule, check_controls() rule engine
+          settlement/           -- clear_hold(), wired into handle_payment_succeeded()
         reconciliation/         -- stub, not yet built
-        outbox/                 -- stub, not yet built
+        outbox/                 -- OutboxEvent model, publish_event(), repository (get_pending, mark_published, mark_failed)
         events/                 -- stub, not yet built
       shared/
         db/
@@ -58,6 +63,9 @@ payments-platform/              (monorepo root)
         exceptions.py           -- domain exceptions
         exception_handlers.py   -- FastAPI exception handlers
         logger.py               -- get_logger(__name__)
+      workers/
+        celery_app.py           -- Celery app, broker config, Beat schedule (poll every 10s)
+        outbox_poller.py        -- poll_and_publish task: queries pending outbox rows, publishes to RabbitMQ via aio-pika
       scripts/
         seed.py                 -- seeds ledger accounts into DB
       alembic/                  -- migrations
@@ -102,11 +110,18 @@ payments-platform/              (monorepo root)
 - Ledger service tests -- all passing, session.commit() owned by caller as designed
 - Logging across router, service, and ledger layers (INFO for state transitions, ERROR for imbalance, DEBUG for ledger writes)
 - Bug fix -- `AuthorizeResponse.client_secret` defaulted to `None` so idempotency path doesn't blow up on DB hydration
+- Issuer auth engine -- `evaluate()` in `app/issuer/auth/service.py`, wired into `payment_service.authorize()` before Stripe call, records `IssuerAuthorization` with decision + decline reason
+- Issuer cards -- `Cardholder` and `Card` models, per-card `available_balance` and `pending_hold` ledger accounts auto-created on card issuance, balance endpoint at `GET /issuer/cards/{id}/balance`
+- Issuer controls -- `MCCBlock` and `VelocityRule` models, `check_controls()` runs balance check + MCC block + velocity limit in order, plugged into `evaluate()`
+- Issuer settlement -- `clear_hold()` in `app/issuer/settlement/service.py`, wired into `handle_payment_succeeded()`, clears pending hold atomically with acquiring settlement
+- Issuer tests -- 24 tests covering all decline paths, idempotency, ledger invariants, full lifecycle (auth + settle nets to zero), card-integrated payment flow
+- `card_id` optional on `AuthorizeRequest` -- triggers full issuer controls when provided, backwards compatible when omitted
+- `PaymentDeclinedException` -- HTTP 402, raised when issuer declines before Stripe is called
+- Outbox pattern -- `OutboxEvent` rows written atomically in the same DB transaction as payment/ledger writes; Celery Beat fires every 10s, worker queries pending rows and publishes to RabbitMQ `payments` topic exchange via aio-pika, marks rows published/failed; `(status, created_at)` composite index covers the poller query; engine created fresh per task invocation (not reused from postgresql.py) to avoid asyncio event loop mismatch across `asyncio.run()` calls
 
 ---
 
 ## What's not yet built
-- Outbox pattern -- write ledger + outbox event atomically, Celery worker polls and publishes to RabbitMQ
 - RabbitMQ event consumers (fraud, notifications, reporting)
 - Reconciliation job -- Celery Beat nightly job comparing ledger against Stripe records
 
@@ -178,6 +193,12 @@ cd apps/web && bun dev
 
 # Infrastructure
 docker compose up -d
+
+# Celery worker (from apps/api/)
+cd apps/api && poetry run celery -A workers.celery_app worker --loglevel=info
+
+# Celery Beat scheduler (from apps/api/)
+cd apps/api && poetry run celery -A workers.celery_app beat --loglevel=info
 ```
 
 ---
