@@ -1,2 +1,2 @@
 PAYMENTS_EXCHANGE = "payments"
-ISSUER_EXCHANGE = "issuer"  # future
+ISSUER_EXCHANGE = "issuer"

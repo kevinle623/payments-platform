@@ -1,5 +1,10 @@
 # payments-platform -- Claude Code Context
 
+## Claude behavior rules
+- Never run commands locally -- no pytest, no alembic, no poetry, no migrations, no seed scripts
+- The user handles all local execution including tests, migrations, and alembic
+- When changes require a migration or test run, describe what to run but do not execute it
+
 ## What this is
 A payments platform monorepo with a FastAPI backend (`apps/api/`) and Next.js dummy frontend (`apps/web/`) for end-to-end Stripe payment testing. Implements double-entry ledger, processor abstraction, idempotency, Stripe webhook handling, issuer auth/controls/settlement, outbox pattern, RabbitMQ async pipeline, fraud signals, notifications, reporting, and reconciliation.
 
@@ -79,15 +84,16 @@ payments-platform/              (monorepo root)
         celery_app.py           -- Celery app, broker config, Beat schedule (outbox every 10s, reconciliation every 24h)
         exchanges.py            -- PAYMENTS_EXCHANGE, ISSUER_EXCHANGE constants (single source of truth)
         producers/
-          payments/
-            outbox_poller.py    -- poll_and_publish Celery task: queries pending outbox rows, publishes to payments exchange
+          outbox_poller.py      -- poll_and_publish Celery task: queries pending outbox rows, fans out to payments or issuer exchange based on event type prefix
         consumers/
           base.py               -- generic run_consumer/start (exchange_name, queue_name, routing_keys, handler)
           payments/
             fraud.py            -- payment.authorized -> persists FraudSignal row
             notifications.py    -- payment.* + reconciliation.mismatch -> delivers via sender, persists NotificationLog
             reporting.py        -- payment.* -> persists ReportingEvent row
-          issuer/               -- future: card.issued, dispute.opened, hold.expired consumers
+          issuer/
+            card_activity.py    -- card.issued, hold.created, hold.cleared -> logs card lifecycle (future: card activity feed)
+            risk.py             -- auth.approved, auth.declined -> scores issuer-side risk patterns (future: feed into fraud module)
         jobs/
           payments/
             reconciliation.py   -- nightly Celery task: creates ReconciliationRun, checks settled payments vs Stripe, writes ReconciliationDiscrepancy rows, publishes reconciliation.mismatch outbox events

@@ -6,7 +6,7 @@ celery_app = Celery(
     "payments_platform",
     broker=RABBITMQ_URL,
     include=[
-        "workers.producers.payments.outbox_poller",
+        "workers.producers.outbox_poller",
         "workers.jobs.payments.reconciliation",
     ],
 )
@@ -18,7 +18,7 @@ celery_app.conf.update(
     enable_utc=True,
     beat_schedule={
         "poll-outbox": {
-            "task": "workers.producers.payments.outbox_poller.poll_and_publish",
+            "task": "workers.producers.outbox_poller.poll_and_publish",
             "schedule": 10.0,  # every 10 seconds
         },
         "reconcile-payments": {

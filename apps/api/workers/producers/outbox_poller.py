@@ -9,12 +9,12 @@ from app.outbox.schemas import OutboxEventDTO
 from shared.logger import get_logger
 from shared.settings import DATABASE_URL, RABBITMQ_URL
 from workers.celery_app import celery_app
-from workers.exchanges import PAYMENTS_EXCHANGE
+from workers.exchanges import ISSUER_EXCHANGE, PAYMENTS_EXCHANGE
 
 logger = get_logger(__name__)
 
 
-@celery_app.task(name="workers.producers.payments.outbox_poller.poll_and_publish")
+@celery_app.task(name="workers.producers.outbox_poller.poll_and_publish")
 def poll_and_publish() -> None:
     asyncio.run(_run())
 
@@ -35,24 +35,35 @@ async def _run() -> None:
             connection = await aio_pika.connect_robust(RABBITMQ_URL)
             async with connection:
                 channel = await connection.channel()
-                exchange = await channel.declare_exchange(
-                    PAYMENTS_EXCHANGE,
-                    aio_pika.ExchangeType.TOPIC,
-                    durable=True,
-                )
+                exchanges = {
+                    PAYMENTS_EXCHANGE: await channel.declare_exchange(
+                        PAYMENTS_EXCHANGE, aio_pika.ExchangeType.TOPIC, durable=True
+                    ),
+                    ISSUER_EXCHANGE: await channel.declare_exchange(
+                        ISSUER_EXCHANGE, aio_pika.ExchangeType.TOPIC, durable=True
+                    ),
+                }
                 for event in events:
-                    await _publish_event(session, exchange, event)
+                    await _publish_event(session, exchanges, event)
 
             await session.commit()
     finally:
         await engine.dispose()
 
 
+def _exchange_name_for(event_type: str) -> str:
+    if event_type.startswith(("card.", "auth.", "hold.")):
+        return ISSUER_EXCHANGE
+    return PAYMENTS_EXCHANGE
+
+
 async def _publish_event(
     session: AsyncSession,
-    exchange: aio_pika.abc.AbstractExchange,
+    exchanges: dict[str, aio_pika.abc.AbstractExchange],
     event: OutboxEventDTO,
 ) -> None:
+    exchange_name = _exchange_name_for(event.event_type)
+    exchange = exchanges[exchange_name]
     try:
         await exchange.publish(
             aio_pika.Message(
@@ -65,9 +76,10 @@ async def _publish_event(
         )
         await repository.mark_published(session, event.id)
         logger.info(
-            "outbox event published | event_id=%s event_type=%s",
+            "outbox event published | event_id=%s event_type=%s exchange=%s",
             event.id,
             event.event_type,
+            exchange_name,
         )
     except Exception:
         await repository.mark_failed(session, event.id)

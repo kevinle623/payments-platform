@@ -158,5 +158,31 @@ services:
       rabbitmq:
         condition: service_healthy
 
+  consumer-card-activity:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    command: python -m workers.consumers.issuer.card_activity
+    environment:
+      <<: *api-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  consumer-issuer-risk:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    command: python -m workers.consumers.issuer.risk
+    environment:
+      <<: *api-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
 volumes:
   postgres_data:
