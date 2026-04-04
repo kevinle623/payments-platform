@@ -9,7 +9,6 @@ from app.issuer.settlement import service as settlement_service
 from app.ledger.models import LedgerEntry
 from shared.enums.currency import Currency
 
-
 # -- fixtures --
 
 
@@ -102,7 +101,9 @@ async def test_clear_hold_skips_when_auth_has_no_card_id(session):
 # -- ledger invariants --
 
 
-async def test_ledger_invariant_full_lifecycle_nets_to_zero(session, card, approved_auth):
+async def test_ledger_invariant_full_lifecycle_nets_to_zero(
+    session, card, approved_auth
+):
     await settlement_service.clear_hold(
         session, idempotency_key="idem-001", amount=5000
     )
@@ -116,7 +117,9 @@ async def test_ledger_invariant_card_accounts_net_to_zero(session, card, approve
     )
     entries = (await session.execute(select(LedgerEntry))).scalars().all()
     card_amounts = [
-        e.amount for e in entries
-        if e.account_id in (card.available_balance_account_id, card.pending_hold_account_id)
+        e.amount
+        for e in entries
+        if e.account_id
+        in (card.available_balance_account_id, card.pending_hold_account_id)
     ]
     assert sum(card_amounts) == 0

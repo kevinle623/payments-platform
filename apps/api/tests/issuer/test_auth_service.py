@@ -11,7 +11,6 @@ from app.issuer.controls import service as controls_service
 from app.ledger.models import LedgerEntry
 from shared.enums.currency import Currency
 
-
 # -- fixtures --
 
 
@@ -183,7 +182,7 @@ async def test_evaluate_declines_velocity_exceeded(session, cardholder):
     await controls_service.add_velocity_rule(
         session,
         card_id=high_limit_card.id,
-        max_amount=10000,   # $100/day
+        max_amount=10000,  # $100/day
         window_seconds=86400,
     )
 
@@ -282,5 +281,5 @@ async def test_available_credit_reduces_after_hold(session, card):
         card_id=card.id,
     )
     balance = await cards_service.get_card_balance(session, card.id)
-    assert balance.available_credit == 5000   # $100 - $50 = $50
+    assert balance.available_credit == 5000  # $100 - $50 = $50
     assert balance.pending_holds == 5000

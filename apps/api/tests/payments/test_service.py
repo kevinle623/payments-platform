@@ -246,7 +246,9 @@ async def test_authorize_with_card_declined_raises_and_no_stripe_call(
     with pytest.raises(PaymentDeclinedException):
         await service.authorize(
             session=session,
-            request=_authorize_request(amount=50000, card_id=card.id),  # $500 > $100 limit
+            request=_authorize_request(
+                amount=50000, card_id=card.id
+            ),  # $500 > $100 limit
             processor=mock_processor,
             expense_account_id=expense.id,
             liability_account_id=liability.id,

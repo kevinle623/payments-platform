@@ -2,7 +2,9 @@ from celery import Celery
 
 from shared.settings import RABBITMQ_URL
 
-celery_app = Celery("payments_platform", broker=RABBITMQ_URL, include=["workers.outbox_poller"])
+celery_app = Celery(
+    "payments_platform", broker=RABBITMQ_URL, include=["workers.outbox_poller"]
+)
 
 celery_app.conf.update(
     task_serializer="json",
