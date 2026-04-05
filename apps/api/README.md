@@ -2,7 +2,14 @@
 
 FastAPI backend implementing acquiring-side payment orchestration, issuer-side card simulation, and bill payments, backed by a double-entry ledger and a Celery + RabbitMQ async event pipeline.
 
-Current status (April 5, 2026): bill payments implementation is live in code and covered by `tests/payees` and `tests/bills`; migration `637e756014ea_add_payees_and_bills_tables.py` is generated and applied; dashboard backend read APIs (`GET /payments`, `GET /payments/{id}`, `GET /issuer/cards`, `GET /issuer/cardholders`, `GET /issuer/cards/{id}/authorizations`) are implemented and tested.
+Current status (April 5, 2026): bill payments implementation is live in code and covered by `tests/payees` and `tests/bills`; migration `637e756014ea_add_payees_and_bills_tables.py` is generated and applied; dashboard backend read APIs (`GET /payments`, `GET /payments/{id}`, `GET /issuer/cards`, `GET /issuer/cardholders`, `GET /issuer/cards/{id}/authorizations`) are implemented and tested; downstream `bill.*` consumer subscriptions for notifications/reporting are implemented.
+
+## Immediate next priorities
+
+1. Add integration tests for `bill.*` consumer handling and persistence.
+2. Add dead-letter/retry topology for RabbitMQ consumer queues.
+3. Support web dashboard pages for bills using current bill/payee APIs.
+4. Start ACH adapter + bank-account domain work for bill payment routing.
 
 ## Tech stack
 
@@ -66,15 +73,15 @@ shared/
   logger.py             get_logger(__name__)
 workers/
   exchanges.py          PAYMENTS_EXCHANGE, ISSUER_EXCHANGE -- single source of truth
-  celery_app.py         Celery app, broker config, Beat schedules (outbox 10s, bills 5m, hold expiry 1h, reconciliation 24h)
+  celery_app.py         Celery app, broker config, Beat schedules (outbox 10s, bills 5m, hold expiry 1h, reconciliation 24h), queue routes (outbox/jobs)
   producers/
     outbox_poller.py    Celery task: polls pending outbox rows, publishes to RabbitMQ (payments/issuer fanout by event prefix)
   consumers/
     base.py             generic run_consumer/start (exchange, queue, routing_keys, handler)
     payments/
       fraud.py          payment.authorized -> persists FraudSignal
-      notifications.py  payment.* + reconciliation.mismatch -> NotificationLog + sender delivery
-      reporting.py      payment.* -> persists ReportingEvent
+      notifications.py  payment.* + bill.* + reconciliation.mismatch -> NotificationLog + sender delivery
+      reporting.py      payment.* + bill.* -> persists ReportingEvent
     issuer/
       card_activity.py  card.issued, hold.created, hold.cleared activity logging
       risk.py           auth.approved, auth.declined risk logging
@@ -145,15 +152,18 @@ Celery Beat (every 5m)
 Celery Beat (every 1h)
   -> fires run_hold_expiry task
 
-Celery Worker (outbox_poller)
+Celery Worker (queue: outbox)
   -> queries pending outbox rows
   -> publishes each to RabbitMQ "payments" or "issuer" topic exchange (routing_key = event_type)
   -> marks rows published/failed
 
+Celery Worker (queue: jobs)
+  -> runs bill scheduler, hold expiry, and reconciliation tasks
+
 RabbitMQ payments exchange
   -> payments.fraud queue       (bound to payment.authorized)
-  -> payments.notifications     (bound to payment.authorized, .settled, .refunded)
-  -> payments.reporting         (bound to payment.authorized, .settled, .refunded)
+  -> payments.notifications     (bound to payment.*, bill.*, reconciliation.mismatch)
+  -> payments.reporting         (bound to payment.*, bill.*)
 
 RabbitMQ issuer exchange
   -> issuer.card_activity queue (bound to card.issued, hold.created, hold.cleared)
@@ -195,8 +205,11 @@ Runs at `http://localhost:8000`.
 ## Running workers
 
 ```bash
-# Celery worker (outbox poller + bill scheduler + hold expiry + reconciliation)
-poetry run celery -A workers.celery_app worker --loglevel=info
+# Celery worker (outbox queue)
+poetry run celery -A workers.celery_app worker --loglevel=info -Q outbox
+
+# Celery worker (jobs queue: bills + hold expiry + reconciliation)
+poetry run celery -A workers.celery_app worker --loglevel=info -Q jobs
 
 # Celery Beat scheduler
 poetry run celery -A workers.celery_app beat --loglevel=info

@@ -18,6 +18,12 @@ celery_app.conf.update(
     accept_content=["json"],
     timezone="UTC",
     enable_utc=True,
+    task_routes={
+        "workers.producers.outbox_poller.poll_and_publish": {"queue": "outbox"},
+        "workers.jobs.bills.scheduler.run_bill_scheduler": {"queue": "jobs"},
+        "workers.jobs.issuer.hold_expiry.run_hold_expiry": {"queue": "jobs"},
+        "workers.jobs.payments.reconciliation.run_reconciliation": {"queue": "jobs"},
+    },
     beat_schedule={
         "poll-outbox": {
             "task": "workers.producers.outbox_poller.poll_and_publish",

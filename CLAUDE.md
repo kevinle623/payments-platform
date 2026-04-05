@@ -10,7 +10,7 @@ A payments platform monorepo with a FastAPI backend (`apps/api/`) and Next.js du
 
 **Repo:** https://github.com/kevinle623/payments-platform
 
-**Status snapshot (April 5, 2026):** Tasks 6, 7, 8, and 9 are complete and tested. Dashboard backend read APIs are also complete and tested. Latest migration: `637e756014ea_add_payees_and_bills_tables.py`.
+**Status snapshot (April 5, 2026):** Tasks 6 through 11 are implemented; bill payments, dashboard backend read APIs, and bill downstream consumer wiring are complete in code. Latest migration: `637e756014ea_add_payees_and_bills_tables.py`.
 
 ---
 
@@ -85,17 +85,17 @@ payments-platform/              (monorepo root)
         exception_handlers.py   -- FastAPI exception handlers
         logger.py               -- get_logger(__name__)
       workers/
-        celery_app.py           -- Celery app, broker config, Beat schedule (outbox every 10s, bill scheduler every 5m, reconciliation every 24h, hold expiry every 1h)
+        celery_app.py           -- Celery app, broker config, Beat schedule (outbox every 10s, bill scheduler every 5m, reconciliation every 24h, hold expiry every 1h), task routes (`outbox` and `jobs` queues)
         exchanges.py            -- PAYMENTS_EXCHANGE, ISSUER_EXCHANGE constants (single source of truth)
         producers/
           outbox_poller.py      -- poll_and_publish Celery task: queries pending outbox rows, fans out to payments or issuer exchange based on event type prefix
-                                   card.* / auth.* / hold.* -> issuer exchange | payment.* / reconciliation.* -> payments exchange
+                                   card.* / auth.* / hold.* -> issuer exchange | payment.* / bill.* / reconciliation.* -> payments exchange
         consumers/
           base.py               -- generic run_consumer/start (exchange_name, queue_name, routing_keys, handler)
           payments/
             fraud.py            -- payment.authorized -> persists FraudSignal row
-            notifications.py    -- payment.* + reconciliation.mismatch -> delivers via sender, persists NotificationLog
-            reporting.py        -- payment.* -> persists ReportingEvent row
+            notifications.py    -- payment.* + bill.* + reconciliation.mismatch -> delivers via sender, persists NotificationLog
+            reporting.py        -- payment.* + bill.* -> persists ReportingEvent row
           issuer/
             card_activity.py    -- card.issued, hold.created, hold.cleared -> logs card lifecycle (future: card activity feed)
             risk.py             -- auth.approved, auth.declined -> scores issuer-side risk patterns (future: feed into fraud module)
@@ -132,7 +132,7 @@ payments-platform/              (monorepo root)
         components/
           CheckoutForm.tsx      -- Stripe PaymentElement form
       package.json              -- Bun/npm dependencies
-  docker-compose.yml            -- full stack: postgres, redis, rabbitmq, api, celery-beat, outbox-poller, all consumers (payments + issuer)
+  docker-compose.yml            -- full stack: postgres, redis, rabbitmq, api, celery-beat, outbox-poller, worker-jobs, all consumers (payments + issuer)
 ```
 
 ---
@@ -176,14 +176,15 @@ payments-platform/              (monorepo root)
 
 ### Completed iterations
 - **Fraud** -- `FraudSignal` model persisted per `payment.authorized` event; `GET /fraud/signals` with `risk_level` filter + pagination; high-value threshold $100
-- **Notifications** -- `NotificationLog` persisted per payment lifecycle event; `NotificationSender` Protocol with `StubSender` (default), `SmtpSender` (smtplib), `TwilioSender` (stub); `get_sender()` factory driven by `NOTIFICATION_SENDER` env var
-- **Reporting** -- `ReportingEvent` persisted per payment lifecycle event; `GET /reporting/summary` returns daily volume grouped by date + event_type + currency with optional `since`/`until` filters
+- **Notifications** -- `NotificationLog` persisted for `payment.*`, `bill.*`, and `reconciliation.mismatch`; `NotificationSender` Protocol with `StubSender` (default), `SmtpSender` (smtplib), `TwilioSender` (stub); `get_sender()` factory driven by `NOTIFICATION_SENDER` env var
+- **Reporting** -- `ReportingEvent` persisted for `payment.*` and `bill.*`; `GET /reporting/summary` returns daily volume grouped by date + event_type + currency with optional `since`/`until` filters
 - **Reconciliation** -- `ReconciliationRun` + `ReconciliationDiscrepancy` models; nightly job; `GET /reconciliation/runs` + `GET /reconciliation/discrepancies?run_id=`
 - **Issuer outbox events (Task 6)** -- `card.issued` published from cards service; `auth.approved`/`auth.declined` from auth service; `hold.created` from ledger service; `hold.cleared` from settlement service; all in same DB transaction
 - **Issuer consumers (Task 7)** -- `card_activity.py` (card.issued, hold.created, hold.cleared) and `risk.py` (auth.approved, auth.declined) on issuer exchange; outbox poller fans out by event prefix
 - **Issuer hold expiry (Task 8)** -- hourly Celery Beat job; `get_stale_approved()` query with composite index on `(decision, created_at)`; double-clear prevention via payment status check
 - **Bill payments (Task 9)** -- `Payee`, `Bill`, `BillPayment` models; payee + bill routers; scheduled bill execution (Beat every 5 minutes) and manual trigger (`POST /bills/{id}/execute`); outbox events `bill.scheduled`/`bill.executed`/`bill.failed`; tests added in `tests/payees` and `tests/bills`
 - **Dashboard backend APIs (Task 10)** -- added `GET /payments`, `GET /payments/{id}`, `GET /issuer/cards`, `GET /issuer/cardholders`, `GET /issuer/cards/{id}/authorizations`; payment detail aggregates ledger transactions + outbox events + issuer auth context
+- **Bill downstream consumers + worker topology (Task 11)** -- notifications/reporting consumers subscribe to `bill.*`; bill event payload contract standardized; Celery task routing split into `outbox` and `jobs` queues; Docker Compose includes dedicated `worker-jobs`
 - **Docker Compose** -- full stack containerized including `consumer-card-activity` and `consumer-issuer-risk`
 
 ---
@@ -194,6 +195,17 @@ payments-platform/              (monorepo root)
 - RabbitMQ consumer dead-lettering for failed messages
 - Real Twilio SMS delivery (stub is in place, needs `pip install twilio` + credentials)
 - Issuer dispute aging job
+
+---
+
+## Immediate next steps (ordered)
+1. Add integration tests for `bill.*` consumer handling paths:
+   - notifications consumer (`_handle_bill_event`)
+   - reporting consumer (`_handle` persistence for bill events)
+2. Add RabbitMQ dead-lettering/retry policy for payments consumers so poison messages do not block queues.
+3. Build web dashboard bills pages (`/bills`, `/bills/[id]`) using existing bill/payee endpoints and manual execute trigger.
+4. Build remaining web dashboard read pages for payments and issuer track using completed backend APIs.
+5. Start ACH processor adapter initiative (`shared/processors/adapters/ach.py`) with bank-account domain model and async settlement lifecycle.
 
 ---
 
@@ -338,6 +350,30 @@ Implementation plan:
 
 ---
 
+## Celery jobs runner split -- implemented
+
+Implemented behavior:
+- `celery-beat` schedules `poll_and_publish`, `run_bill_scheduler`, `run_hold_expiry`, and `run_reconciliation`.
+- Celery task routes split queues explicitly:
+  - `workers.producers.outbox_poller.poll_and_publish -> outbox`
+  - `workers.jobs.bills.scheduler.run_bill_scheduler -> jobs`
+  - `workers.jobs.issuer.hold_expiry.run_hold_expiry -> jobs`
+  - `workers.jobs.payments.reconciliation.run_reconciliation -> jobs`
+- Docker Compose worker services:
+  - `outbox-poller`: `celery -A workers.celery_app worker --loglevel=info -Q outbox`
+  - `worker-jobs`: `celery -A workers.celery_app worker --loglevel=info -Q jobs`
+
+---
+
+## Bill-event downstream consumer pipeline -- implemented
+
+Implemented behavior:
+- `bill.scheduled`, `bill.executed`, and `bill.failed` payloads are standardized in bills service.
+- Notifications consumer subscribes to `bill.*` routing keys and writes NotificationLog rows for bill lifecycle events.
+- Reporting consumer subscribes to `bill.*` routing keys and records reporting events for bill lifecycle analytics.
+
+---
+
 ## Running the apps
 
 ### Local development (no Docker)
@@ -351,8 +387,11 @@ cd apps/api && poetry run uvicorn main:app --reload
 # Web
 cd apps/web && bun dev
 
-# Celery worker
-cd apps/api && poetry run celery -A workers.celery_app worker --loglevel=info
+# Celery worker -- outbox queue
+cd apps/api && poetry run celery -A workers.celery_app worker --loglevel=info -Q outbox
+
+# Celery worker -- jobs queue
+cd apps/api && poetry run celery -A workers.celery_app worker --loglevel=info -Q jobs
 
 # Celery Beat
 cd apps/api && poetry run celery -A workers.celery_app beat --loglevel=info
@@ -375,7 +414,7 @@ export STRIPE_WEBHOOK_SECRET=whsec_...
 docker compose up --build
 ```
 
-Services: postgres, redis, rabbitmq, api, celery-beat, outbox-poller, consumer-fraud, consumer-notifications, consumer-reporting, consumer-card-activity, consumer-issuer-risk.
+Services: postgres, redis, rabbitmq, api, celery-beat, outbox-poller, worker-jobs, consumer-fraud, consumer-notifications, consumer-reporting, consumer-card-activity, consumer-issuer-risk.
 
 ---
 

@@ -123,6 +123,9 @@ async def test_subjects_for_known_event_types(session, mock_sender):
         ("payment.authorized", "Payment authorized"),
         ("payment.settled", "Payment completed"),
         ("payment.refunded", "Refund processed"),
+        ("bill.scheduled", "Bill scheduled"),
+        ("bill.executed", "Bill executed"),
+        ("bill.failed", "Bill failed"),
     ]
     for event_type, expected_subject in event_types:
         await service.send_and_log(

@@ -78,7 +78,7 @@ services:
         condition: service_healthy
 
   # ------------------------------------------------------------------
-  # Celery Beat -- schedules outbox polling and reconciliation job
+  # Celery Beat -- schedules outbox polling and all periodic jobs
   # ------------------------------------------------------------------
 
   celery-beat:
@@ -97,14 +97,33 @@ services:
         condition: service_healthy
 
   # ------------------------------------------------------------------
-  # Outbox poller -- picks up pending OutboxEvents and publishes to RabbitMQ
+  # Outbox worker -- processes outbox polling tasks (queue: outbox)
   # ------------------------------------------------------------------
 
   outbox-poller:
     build:
       context: ./apps/api
       dockerfile: Dockerfile
-    command: celery -A workers.celery_app worker --loglevel=info -Q celery
+    command: celery -A workers.celery_app worker --loglevel=info -Q outbox
+    environment:
+      <<: *api-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  # ------------------------------------------------------------------
+  # Jobs worker -- processes scheduled job tasks (queue: jobs)
+  # ------------------------------------------------------------------
+
+  worker-jobs:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    command: celery -A workers.celery_app worker --loglevel=info -Q jobs
     environment:
       <<: *api-env
     depends_on:

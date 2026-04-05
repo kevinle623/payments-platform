@@ -2,7 +2,15 @@
 
 A payments platform monorepo implementing acquiring-side payment orchestration, issuer-side card simulation, and a full async observability pipeline. Built with FastAPI, Stripe, a double-entry ledger, RabbitMQ, and Celery.
 
-Current status (April 5, 2026): bill payments module is implemented and tested (`tests/payees` + `tests/bills`), migration `637e756014ea_add_payees_and_bills_tables.py` is applied, and dashboard backend read APIs are implemented and tested (`tests/payments/test_service.py` + `tests/issuer/test_cards_service.py`).
+Current status (April 5, 2026): bill payments module is implemented and tested (`tests/payees` + `tests/bills`), migration `637e756014ea_add_payees_and_bills_tables.py` is applied, dashboard backend read APIs are implemented and tested (`tests/payments/test_service.py` + `tests/issuer/test_cards_service.py`), and downstream `bill.*` notifications/reporting consumers are wired.
+
+## Immediate next priorities
+
+1. Add integration tests for `bill.*` consumer paths (notifications + reporting persistence).
+2. Add dead-letter/retry policy for RabbitMQ consumers.
+3. Build web dashboard pages for bills (`/bills`, `/bills/[id]`) using existing backend APIs.
+4. Build remaining web dashboard pages for payments + issuer read APIs.
+5. Start ACH adapter + bank-account model initiative for bill routing.
 
 ## Tech stack
 
@@ -46,8 +54,8 @@ Three tracks running together:
 11. Celery Beat fires every 10 seconds -- outbox poller queries pending rows, publishes to RabbitMQ `payments` topic exchange
 12. Three consumers process events independently from their own durable queues:
     - `payments.fraud` -- scores risk on `payment.authorized`, persists `FraudSignal` row
-    - `payments.notifications` -- resolves cardholder email if `card_id` present, delivers via `NotificationSender`, persists `NotificationLog` row
-    - `payments.reporting` -- persists `ReportingEvent` row for daily volume aggregation
+    - `payments.notifications` -- handles `payment.*`, `bill.*`, and `reconciliation.mismatch`; persists `NotificationLog` rows and sends when recipient is resolvable
+    - `payments.reporting` -- handles `payment.*` and `bill.*`; persists `ReportingEvent` rows for daily volume aggregation
 
 ### Reconciliation
 13. Celery Beat fires nightly -- reconciliation job creates a `ReconciliationRun`, checks each settled payment against Stripe, writes `ReconciliationDiscrepancy` rows for mismatches, publishes `reconciliation.mismatch` outbox event per mismatch so the notifications consumer can alert
@@ -110,7 +118,7 @@ export STRIPE_WEBHOOK_SECRET=whsec_...
 docker compose up --build
 ```
 
-This starts everything: postgres, redis, rabbitmq, api (port 8000), celery-beat, outbox-poller, consumer-fraud, consumer-notifications, consumer-reporting, consumer-card-activity, consumer-issuer-risk.
+This starts everything: postgres, redis, rabbitmq, api (port 8000), celery-beat, outbox-poller, worker-jobs, consumer-fraud, consumer-notifications, consumer-reporting, consumer-card-activity, consumer-issuer-risk.
 
 ### Option B -- Local development
 
@@ -167,8 +175,11 @@ Copy the printed `whsec_...` into `apps/api/.env` as `STRIPE_WEBHOOK_SECRET` and
 ```bash
 # from apps/api/
 
-# Celery worker (runs outbox poller + bill scheduler + hold expiry + reconciliation tasks)
-poetry run celery -A workers.celery_app worker --loglevel=info
+# Celery worker (outbox queue)
+poetry run celery -A workers.celery_app worker --loglevel=info -Q outbox
+
+# Celery worker (jobs queue: bills + hold expiry + reconciliation)
+poetry run celery -A workers.celery_app worker --loglevel=info -Q jobs
 
 # Celery Beat scheduler
 poetry run celery -A workers.celery_app beat --loglevel=info

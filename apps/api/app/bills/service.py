@@ -24,6 +24,31 @@ logger = get_logger(__name__)
 _MANUAL_TRIGGER = "manual"
 
 
+def _bill_event_payload(
+    *,
+    event_status: str,
+    bill: BillDTO,
+    trigger: str,
+    bill_payment_id: uuid.UUID | None,
+    payment_id: uuid.UUID | None,
+    error: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "bill_id": str(bill.id),
+        "bill_payment_id": str(bill_payment_id) if bill_payment_id else None,
+        "payment_id": str(payment_id) if payment_id else None,
+        "payee_id": str(bill.payee_id),
+        "card_id": str(bill.card_id) if bill.card_id else None,
+        "amount": bill.amount,
+        "currency": bill.currency,
+        "frequency": bill.frequency,
+        "trigger": trigger,
+        "status": event_status,
+        "next_due_date": bill.next_due_date.isoformat(),
+        "error": error,
+    }
+
+
 def _advance_due_date(next_due_date: datetime, frequency: BillFrequency) -> datetime:
     if frequency == BillFrequency.WEEKLY:
         return next_due_date + timedelta(days=7)
@@ -70,15 +95,13 @@ async def create_bill(
         await outbox_service.publish_event(
             session,
             event_type=OutboxEventType.BILL_SCHEDULED,
-            payload={
-                "bill_id": str(bill.id),
-                "payee_id": str(bill.payee_id),
-                "card_id": str(bill.card_id) if bill.card_id else None,
-                "amount": bill.amount,
-                "currency": bill.currency,
-                "frequency": bill.frequency,
-                "next_due_date": bill.next_due_date.isoformat(),
-            },
+            payload=_bill_event_payload(
+                event_status="scheduled",
+                bill=bill,
+                trigger="scheduled",
+                bill_payment_id=None,
+                payment_id=None,
+            ),
         )
         await session.commit()
         logger.info(
@@ -229,15 +252,13 @@ async def execute_bill(
         await outbox_service.publish_event(
             session,
             event_type=OutboxEventType.BILL_EXECUTED,
-            payload={
-                "bill_id": str(updated_bill.id),
-                "bill_payment_id": str(bill_payment.id),
-                "payment_id": str(response.id),
-                "amount": updated_bill.amount,
-                "currency": updated_bill.currency,
-                "trigger": trigger,
-                "next_due_date": updated_bill.next_due_date.isoformat(),
-            },
+            payload=_bill_event_payload(
+                event_status="executed",
+                bill=updated_bill,
+                trigger=trigger,
+                bill_payment_id=bill_payment.id,
+                payment_id=response.id,
+            ),
         )
         await session.commit()
         logger.info(
@@ -280,14 +301,14 @@ async def _record_failed_execution(
         await outbox_service.publish_event(
             session,
             event_type=OutboxEventType.BILL_FAILED,
-            payload={
-                "bill_id": str(bill.id),
-                "bill_payment_id": str(failed_payment.id),
-                "amount": bill.amount,
-                "currency": bill.currency,
-                "trigger": trigger,
-                "error": error,
-            },
+            payload=_bill_event_payload(
+                event_status="failed",
+                bill=bill,
+                trigger=trigger,
+                bill_payment_id=failed_payment.id,
+                payment_id=None,
+                error=error,
+            ),
         )
         await session.commit()
         current_bill = await repository.get_bill(session, bill.id)

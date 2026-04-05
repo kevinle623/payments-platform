@@ -39,5 +39,8 @@ def _subject_for(event_type: str) -> str:
         "payment.authorized": "Payment authorized",
         "payment.settled": "Payment completed",
         "payment.refunded": "Refund processed",
+        "bill.scheduled": "Bill scheduled",
+        "bill.executed": "Bill executed",
+        "bill.failed": "Bill failed",
     }
     return subjects.get(event_type, "Payment notification")
