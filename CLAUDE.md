@@ -10,7 +10,7 @@ A payments platform monorepo with a FastAPI backend (`apps/api/`) and Next.js du
 
 **Repo:** https://github.com/kevinle623/payments-platform
 
-**Status snapshot (April 4, 2026):** Tasks 6, 7, 8, and 9 are complete and tested. Latest migration: `637e756014ea_add_payees_and_bills_tables.py`.
+**Status snapshot (April 5, 2026):** Tasks 6, 7, 8, and 9 are complete and tested. Dashboard backend read APIs are also complete and tested. Latest migration: `637e756014ea_add_payees_and_bills_tables.py`.
 
 ---
 
@@ -183,6 +183,7 @@ payments-platform/              (monorepo root)
 - **Issuer consumers (Task 7)** -- `card_activity.py` (card.issued, hold.created, hold.cleared) and `risk.py` (auth.approved, auth.declined) on issuer exchange; outbox poller fans out by event prefix
 - **Issuer hold expiry (Task 8)** -- hourly Celery Beat job; `get_stale_approved()` query with composite index on `(decision, created_at)`; double-clear prevention via payment status check
 - **Bill payments (Task 9)** -- `Payee`, `Bill`, `BillPayment` models; payee + bill routers; scheduled bill execution (Beat every 5 minutes) and manual trigger (`POST /bills/{id}/execute`); outbox events `bill.scheduled`/`bill.executed`/`bill.failed`; tests added in `tests/payees` and `tests/bills`
+- **Dashboard backend APIs (Task 10)** -- added `GET /payments`, `GET /payments/{id}`, `GET /issuer/cards`, `GET /issuer/cardholders`, `GET /issuer/cards/{id}/authorizations`; payment detail aggregates ledger transactions + outbox events + issuer auth context
 - **Docker Compose** -- full stack containerized including `consumer-card-activity` and `consumer-issuer-risk`
 
 ---
@@ -314,12 +315,13 @@ The current frontend is a minimal Stripe Elements checkout form. The goal is to 
 - `/reconciliation` -- list of reconciliation runs with checked/mismatch counts; expand to see discrepancies
 - `/reporting` -- daily volume chart grouped by currency; event type breakdown
 
-### Backend endpoints still needed (add before or alongside dashboard)
+### Backend endpoints status (completed)
 - `GET /payments` -- paginated list with optional status filter
-- `GET /payments/{id}` -- payment detail including ledger entries and outbox events
+- `GET /payments/{id}` -- payment detail including ledger entries, outbox events, and issuer auth decision
 - `GET /issuer/cards` -- list all cards
 - `GET /issuer/cardholders` -- list all cardholders
 - `GET /issuer/cards/{id}/authorizations` -- auth history for a card
+- Validation run: `tests/payments/test_service.py` + `tests/issuer/test_cards_service.py` passed (`14 passed`)
 
 ---
 

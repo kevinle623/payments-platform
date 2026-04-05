@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Header, Request
+from fastapi import APIRouter, Depends, Header, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.payments import service
@@ -9,17 +9,49 @@ from app.payments.schemas import (
     AuthorizeResponse,
     CaptureRequest,
     CaptureResponse,
+    PaymentDetailResponse,
+    PaymentRecord,
     RefundRequest,
     RefundResponse,
 )
 from shared.db import get_db
 from shared.logger import get_logger
-from shared.processors.base import ProcessorEventType
+from shared.processors.base import PaymentStatus, ProcessorEventType
 from shared.processors.factory import get_processor
 from shared.settings import CASH_ACCOUNT_ID, EXPENSE_ACCOUNT_ID, LIABILITY_ACCOUNT_ID
 
 router = APIRouter(prefix="/payments", tags=["payments"])
 logger = get_logger(__name__)
+
+
+@router.get("", response_model=list[PaymentRecord])
+async def list_payments(
+    status: PaymentStatus | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    session: AsyncSession = Depends(get_db),
+):
+    logger.info(
+        "list payments request received | status=%s limit=%d offset=%d",
+        status,
+        limit,
+        offset,
+    )
+    return await service.list_payments(
+        session=session,
+        status=status,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/{payment_id}", response_model=PaymentDetailResponse)
+async def get_payment(
+    payment_id: uuid.UUID,
+    session: AsyncSession = Depends(get_db),
+):
+    logger.info("get payment detail request received | payment_id=%s", payment_id)
+    return await service.get_payment_detail(session=session, payment_id=payment_id)
 
 
 @router.post("/authorize", response_model=AuthorizeResponse)

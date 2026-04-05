@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime
 
 from sqlalchemy import select
@@ -25,6 +26,14 @@ async def _get_orm_by_idempotency_key(
     result = await session.execute(
         select(Payment).where(Payment.idempotency_key == idempotency_key)
     )
+    return result.scalar_one_or_none()
+
+
+async def _get_orm_by_id(
+    session: AsyncSession,
+    payment_id: uuid.UUID,
+) -> Payment | None:
+    result = await session.execute(select(Payment).where(Payment.id == payment_id))
     return result.scalar_one_or_none()
 
 
@@ -80,6 +89,29 @@ async def create(
     await session.flush()
     updated = await _update_processor_payment_id(session, payment, processor_payment_id)
     return PaymentRecord.model_validate(updated)
+
+
+async def get_by_id(
+    session: AsyncSession,
+    payment_id: uuid.UUID,
+) -> PaymentRecord | None:
+    orm_object = await _get_orm_by_id(session, payment_id)
+    if orm_object is None:
+        return None
+    return PaymentRecord.model_validate(orm_object)
+
+
+async def list_payments(
+    session: AsyncSession,
+    status: PaymentStatus | None = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[PaymentRecord]:
+    query = select(Payment).order_by(Payment.created_at.desc()).limit(limit).offset(offset)
+    if status is not None:
+        query = query.where(Payment.status == status)
+    result = await session.execute(query)
+    return [PaymentRecord.model_validate(row) for row in result.scalars().all()]
 
 
 async def settle(

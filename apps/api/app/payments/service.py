@@ -13,12 +13,57 @@ from app.payments.schemas import (
     AuthorizeRequest,
     AuthorizeResponse,
     CaptureResponse,
+    PaymentDetailResponse,
+    PaymentRecord,
     RefundResponse,
 )
 from shared.exceptions import PaymentDeclinedException, PaymentNotFoundError
 from shared.logger import logger
-from shared.processors.base import PaymentProcessor
+from shared.processors.base import PaymentProcessor, PaymentStatus
 from shared.settings import PROCESSOR
+
+
+async def list_payments(
+    session: AsyncSession,
+    status: PaymentStatus | None = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[PaymentRecord]:
+    return await repository.list_payments(
+        session=session,
+        status=status,
+        limit=limit,
+        offset=offset,
+    )
+
+
+async def get_payment_detail(
+    session: AsyncSession,
+    payment_id: uuid.UUID,
+) -> PaymentDetailResponse:
+    payment = await repository.get_by_id(session, payment_id)
+    if payment is None:
+        raise PaymentNotFoundError(f"Payment not found: {payment_id}")
+
+    ledger_transactions = await ledger_service.list_transactions_for_payment(
+        session=session,
+        payment_id=payment.id,
+    )
+    outbox_events = await outbox_service.list_events_for_payment(
+        session=session,
+        payment_id=payment.id,
+    )
+    issuer_authorization = await issuer_auth_service.get_by_idempotency_key(
+        session=session,
+        idempotency_key=payment.idempotency_key,
+    )
+
+    return PaymentDetailResponse(
+        payment=payment,
+        ledger_transactions=ledger_transactions,
+        outbox_events=outbox_events,
+        issuer_authorization=issuer_authorization,
+    )
 
 
 async def authorize(

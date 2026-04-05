@@ -3,6 +3,9 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
+from app.issuer.auth.schemas import IssuerAuthorizationDTO
+from app.ledger.schemas import LedgerTransactionResponse
+from app.outbox.schemas import OutboxEventDTO
 from shared.enums.currency import Currency
 from shared.processors.base import PaymentStatus
 
@@ -72,3 +75,10 @@ class PaymentRecord(BaseModel):
     idempotency_key: str
     created_at: datetime
     updated_at: datetime
+
+
+class PaymentDetailResponse(BaseModel):
+    payment: PaymentRecord
+    ledger_transactions: list[LedgerTransactionResponse]
+    outbox_events: list[OutboxEventDTO]
+    issuer_authorization: IssuerAuthorizationDTO | None

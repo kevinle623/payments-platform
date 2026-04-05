@@ -1,3 +1,5 @@
+import uuid
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.outbox import repository
@@ -23,3 +25,17 @@ async def publish_event(
         "outbox event queued | event_id=%s event_type=%s", event.id, event_type
     )
     return event
+
+
+async def list_events_for_payment(
+    session: AsyncSession,
+    payment_id: uuid.UUID,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[OutboxEventDTO]:
+    return await repository.list_by_payment_id(
+        session=session,
+        payment_id=payment_id,
+        limit=limit,
+        offset=offset,
+    )

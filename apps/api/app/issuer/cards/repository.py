@@ -52,6 +52,20 @@ async def create_cardholder(
     return CardholderDTO.model_validate(cardholder)
 
 
+async def list_cardholders(
+    session: AsyncSession,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[CardholderDTO]:
+    result = await session.execute(
+        select(Cardholder)
+        .order_by(Cardholder.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    return [CardholderDTO.model_validate(row) for row in result.scalars().all()]
+
+
 # -- card --
 
 
@@ -112,3 +126,14 @@ async def create_card(
     session.add(card)
     await session.flush()
     return CardDTO.model_validate(card)
+
+
+async def list_cards(
+    session: AsyncSession,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[CardDTO]:
+    result = await session.execute(
+        select(Card).order_by(Card.created_at.desc()).limit(limit).offset(offset)
+    )
+    return [CardDTO.model_validate(row) for row in result.scalars().all()]

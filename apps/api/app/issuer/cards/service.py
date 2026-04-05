@@ -2,6 +2,8 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.issuer.auth import service as issuer_auth_service
+from app.issuer.auth.schemas import IssuerAuthorizationDTO
 from app.issuer.cards import repository
 from app.issuer.cards.schemas import CardBalanceResponse, CardDTO, CardholderDTO
 from app.ledger import repository as ledger_repository
@@ -114,4 +116,42 @@ async def get_card_balance(
         available_credit=available_credit,
         pending_holds=pending_holds.balance,
         currency=card.currency,
+    )
+
+
+async def list_cards(
+    session: AsyncSession,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[CardDTO]:
+    return await repository.list_cards(session=session, limit=limit, offset=offset)
+
+
+async def list_cardholders(
+    session: AsyncSession,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[CardholderDTO]:
+    return await repository.list_cardholders(
+        session=session,
+        limit=limit,
+        offset=offset,
+    )
+
+
+async def list_card_authorizations(
+    session: AsyncSession,
+    card_id: uuid.UUID,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[IssuerAuthorizationDTO]:
+    card = await repository.get_card(session, card_id)
+    if card is None:
+        raise PaymentNotFoundError(f"Card not found: {card_id}")
+
+    return await issuer_auth_service.list_card_authorizations(
+        session=session,
+        card_id=card_id,
+        limit=limit,
+        offset=offset,
     )

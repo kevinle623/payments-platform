@@ -60,3 +60,19 @@ async def mark_failed(
     event = result.scalar_one()
     event.status = OutboxEventStatus.FAILED
     await session.flush()
+
+
+async def list_by_payment_id(
+    session: AsyncSession,
+    payment_id: uuid.UUID,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[OutboxEventDTO]:
+    result = await session.execute(
+        select(OutboxEvent)
+        .where(OutboxEvent.payload["payment_id"].astext == str(payment_id))
+        .order_by(OutboxEvent.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    return [OutboxEventDTO.model_validate(row) for row in result.scalars().all()]

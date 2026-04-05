@@ -30,6 +30,24 @@ async def get_by_idempotency_key(
     return IssuerAuthorizationDTO.model_validate(orm_object)
 
 
+async def list_by_card_id(
+    session: AsyncSession,
+    card_id: uuid.UUID,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[IssuerAuthorizationDTO]:
+    result = await session.execute(
+        select(IssuerAuthorization)
+        .where(IssuerAuthorization.card_id == card_id)
+        .order_by(IssuerAuthorization.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    return [
+        IssuerAuthorizationDTO.model_validate(row) for row in result.scalars().all()
+    ]
+
+
 async def get_stale_approved(
     session: AsyncSession,
     older_than: datetime,

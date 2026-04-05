@@ -111,3 +111,24 @@ async def evaluate(
     await outbox_service.publish_event(session, event_type=event_type, payload=payload)
 
     return record
+
+
+async def get_by_idempotency_key(
+    session: AsyncSession,
+    idempotency_key: str,
+) -> IssuerAuthorizationDTO | None:
+    return await repository.get_by_idempotency_key(session, idempotency_key)
+
+
+async def list_card_authorizations(
+    session: AsyncSession,
+    card_id: uuid.UUID,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[IssuerAuthorizationDTO]:
+    return await repository.list_by_card_id(
+        session=session,
+        card_id=card_id,
+        limit=limit,
+        offset=offset,
+    )

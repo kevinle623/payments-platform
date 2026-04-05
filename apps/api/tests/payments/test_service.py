@@ -6,6 +6,7 @@ from sqlalchemy import select
 
 from app.issuer.cards import service as cards_service
 from app.ledger.models import LedgerAccount, LedgerEntry
+from app.outbox.models import OutboxEventType
 from app.payments import service
 from app.payments.models import Payment
 from shared.enums.currency import Currency
@@ -199,6 +200,57 @@ async def test_handle_payment_refunded_marks_record_refunded(
     assert payment.status == PaymentStatus.REFUNDED
 
 
+async def test_list_payments_returns_records(session, mock_processor, ledger_accounts):
+    expense, liability, _ = ledger_accounts
+    await service.authorize(
+        session=session,
+        request=_authorize_request(idempotency_key="idem-list-001"),
+        processor=mock_processor,
+        expense_account_id=expense.id,
+        liability_account_id=liability.id,
+    )
+    await service.authorize(
+        session=session,
+        request=_authorize_request(idempotency_key="idem-list-002"),
+        processor=mock_processor,
+        expense_account_id=expense.id,
+        liability_account_id=liability.id,
+    )
+
+    records = await service.list_payments(session=session)
+    assert len(records) == 2
+    assert {record.idempotency_key for record in records} == {
+        "idem-list-001",
+        "idem-list-002",
+    }
+
+
+async def test_get_payment_detail_includes_related_context(
+    session, mock_processor, ledger_accounts, card
+):
+    expense, liability, _ = ledger_accounts
+    response = await service.authorize(
+        session=session,
+        request=_authorize_request(
+            idempotency_key="idem-detail-001",
+            card_id=card.id,
+        ),
+        processor=mock_processor,
+        expense_account_id=expense.id,
+        liability_account_id=liability.id,
+    )
+
+    detail = await service.get_payment_detail(session=session, payment_id=response.id)
+    assert detail.payment.id == response.id
+    assert detail.issuer_authorization is not None
+    assert detail.issuer_authorization.idempotency_key == "idem-detail-001"
+    assert len(detail.ledger_transactions) == 1
+    assert any(
+        event.event_type == OutboxEventType.PAYMENT_AUTHORIZED
+        for event in detail.outbox_events
+    )
+
+
 # -- card-integrated payment tests --
 
 
@@ -288,13 +340,17 @@ async def test_handle_payment_succeeded_with_card_clears_hold(
 # -- helpers --
 
 
-def _authorize_request(amount: int = 5000, card_id: uuid.UUID | None = None):
+def _authorize_request(
+    amount: int = 5000,
+    card_id: uuid.UUID | None = None,
+    idempotency_key: str = "idem-key-001",
+):
     from app.payments.schemas import AuthorizeRequest
 
     return AuthorizeRequest(
         amount=amount,
         currency=Currency.USD,
-        idempotency_key="idem-key-001",
+        idempotency_key=idempotency_key,
         metadata={},
         card_id=card_id,
     )

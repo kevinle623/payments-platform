@@ -145,3 +145,17 @@ async def get_balance(
     currency: Currency,
 ) -> AccountBalanceResponse:
     return await repository.get_account_balance(session, account_id, currency)
+
+
+async def list_transactions_for_payment(
+    session: AsyncSession,
+    payment_id: uuid.UUID,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[LedgerTransactionResponse]:
+    return await repository.list_transactions_for_payment(
+        session=session,
+        payment_id=payment_id,
+        limit=limit,
+        offset=offset,
+    )

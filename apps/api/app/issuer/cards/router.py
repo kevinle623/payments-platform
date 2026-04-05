@@ -1,8 +1,9 @@
 import uuid
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.issuer.auth.schemas import IssuerAuthorizationDTO
 from app.issuer.cards import service
 from app.issuer.cards.schemas import (
     CardBalanceResponse,
@@ -52,6 +53,15 @@ async def get_cardholder(
     return cardholder
 
 
+@router.get("/cardholders", response_model=list[CardholderDTO])
+async def list_cardholders(
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    session: AsyncSession = Depends(get_db),
+):
+    return await service.list_cardholders(session=session, limit=limit, offset=offset)
+
+
 @router.post("/cards", response_model=CardDTO, status_code=201)
 async def create_card(
     request: CreateCardRequest,
@@ -83,12 +93,36 @@ async def get_card(
     return card
 
 
+@router.get("/cards", response_model=list[CardDTO])
+async def list_cards(
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    session: AsyncSession = Depends(get_db),
+):
+    return await service.list_cards(session=session, limit=limit, offset=offset)
+
+
 @router.get("/cards/{card_id}/balance", response_model=CardBalanceResponse)
 async def get_card_balance(
     card_id: uuid.UUID,
     session: AsyncSession = Depends(get_db),
 ):
     return await service.get_card_balance(session, card_id)
+
+
+@router.get("/cards/{card_id}/authorizations", response_model=list[IssuerAuthorizationDTO])
+async def list_card_authorizations(
+    card_id: uuid.UUID,
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    session: AsyncSession = Depends(get_db),
+):
+    return await service.list_card_authorizations(
+        session=session,
+        card_id=card_id,
+        limit=limit,
+        offset=offset,
+    )
 
 
 # -- spend controls --

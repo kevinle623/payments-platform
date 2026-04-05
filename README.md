@@ -2,7 +2,7 @@
 
 A payments platform monorepo implementing acquiring-side payment orchestration, issuer-side card simulation, and a full async observability pipeline. Built with FastAPI, Stripe, a double-entry ledger, RabbitMQ, and Celery.
 
-Current status (April 4, 2026): bill payments module is implemented and tested (`tests/payees` + `tests/bills`), with migration `637e756014ea_add_payees_and_bills_tables.py` applied.
+Current status (April 5, 2026): bill payments module is implemented and tested (`tests/payees` + `tests/bills`), migration `637e756014ea_add_payees_and_bills_tables.py` is applied, and dashboard backend read APIs are implemented and tested (`tests/payments/test_service.py` + `tests/issuer/test_cards_service.py`).
 
 ## Tech stack
 

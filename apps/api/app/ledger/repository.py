@@ -95,3 +95,22 @@ async def get_entries_by_transaction(
         LedgerEntryDTO(account_id=e.account_id, amount=e.amount)
         for e in result.scalars().all()
     ]
+
+
+async def list_transactions_for_payment(
+    session: AsyncSession,
+    payment_id: uuid.UUID,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[LedgerTransactionResponse]:
+    result = await session.execute(
+        select(LedgerTransaction)
+        .options(selectinload(LedgerTransaction.entries))
+        .where(LedgerTransaction.description.ilike(f"%payment {payment_id}%"))
+        .order_by(LedgerTransaction.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    return [
+        LedgerTransactionResponse.model_validate(row) for row in result.scalars().all()
+    ]

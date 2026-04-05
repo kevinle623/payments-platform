@@ -2,7 +2,7 @@
 
 FastAPI backend implementing acquiring-side payment orchestration, issuer-side card simulation, and bill payments, backed by a double-entry ledger and a Celery + RabbitMQ async event pipeline.
 
-Current status (April 4, 2026): bill payments implementation is live in code and covered by `tests/payees` and `tests/bills`; migration `637e756014ea_add_payees_and_bills_tables.py` is generated and applied.
+Current status (April 5, 2026): bill payments implementation is live in code and covered by `tests/payees` and `tests/bills`; migration `637e756014ea_add_payees_and_bills_tables.py` is generated and applied; dashboard backend read APIs (`GET /payments`, `GET /payments/{id}`, `GET /issuer/cards`, `GET /issuer/cardholders`, `GET /issuer/cards/{id}/authorizations`) are implemented and tested.
 
 ## Tech stack
 
