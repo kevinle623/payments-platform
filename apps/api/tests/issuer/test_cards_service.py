@@ -76,7 +76,9 @@ async def test_list_card_authorizations_returns_card_history(session):
         card_id=card.id,
     )
 
-    auths = await cards_service.list_card_authorizations(session=session, card_id=card.id)
+    auths = await cards_service.list_card_authorizations(
+        session=session, card_id=card.id
+    )
     keys = {auth.idempotency_key for auth in auths}
     assert "idem-auth-history-001" in keys
     assert "idem-auth-history-002" in keys

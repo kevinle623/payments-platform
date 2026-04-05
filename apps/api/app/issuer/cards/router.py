@@ -110,7 +110,9 @@ async def get_card_balance(
     return await service.get_card_balance(session, card_id)
 
 
-@router.get("/cards/{card_id}/authorizations", response_model=list[IssuerAuthorizationDTO])
+@router.get(
+    "/cards/{card_id}/authorizations", response_model=list[IssuerAuthorizationDTO]
+)
 async def list_card_authorizations(
     card_id: uuid.UUID,
     limit: int = Query(default=100, ge=1, le=500),

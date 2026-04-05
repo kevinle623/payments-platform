@@ -107,7 +107,9 @@ async def list_payments(
     limit: int = 100,
     offset: int = 0,
 ) -> list[PaymentRecord]:
-    query = select(Payment).order_by(Payment.created_at.desc()).limit(limit).offset(offset)
+    query = (
+        select(Payment).order_by(Payment.created_at.desc()).limit(limit).offset(offset)
+    )
     if status is not None:
         query = query.where(Payment.status == status)
     result = await session.execute(query)
