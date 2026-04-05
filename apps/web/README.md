@@ -2,6 +2,8 @@
 
 Dummy frontend for end-to-end Stripe payment testing. Calls the FastAPI backend to authorize a payment, then uses Stripe Elements to collect card details and confirm the payment intent.
 
+Current status (April 4, 2026): this app is still checkout-only. Backend bill payments (`/payees`, `/bills`) and issuer observability APIs are available, and the next web initiative is the dashboard pages for payments, issuer, bills, fraud, reconciliation, and reporting.
+
 ## Tech stack
 
 - Next.js 16 (App Router)

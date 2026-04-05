@@ -2,6 +2,8 @@
 
 A payments platform monorepo implementing acquiring-side payment orchestration, issuer-side card simulation, and a full async observability pipeline. Built with FastAPI, Stripe, a double-entry ledger, RabbitMQ, and Celery.
 
+Current status (April 4, 2026): bill payments module is implemented and tested (`tests/payees` + `tests/bills`), with migration `637e756014ea_add_payees_and_bills_tables.py` applied.
+
 ## Tech stack
 
 | Layer | Stack |
@@ -21,6 +23,8 @@ Three tracks running together:
 **Issuer track** -- simulates the card network side. When a payment is authorized with a `card_id`, the issuer engine runs spend controls (balance check, MCC block, velocity limits) and decides to approve or decline before Stripe is ever called. On settlement, issuer holds are cleared atomically.
 
 **Observability pipeline** -- every payment lifecycle event is published to RabbitMQ via the outbox pattern. Three consumers run independently and persist fraud signals, notification logs, and reporting events. A nightly reconciliation job checks settled payments against Stripe and records any discrepancies.
+
+**Bill payments track** -- payees and bills are modeled in-platform. Bills can execute manually (`POST /bills/{id}/execute`) or on schedule (Celery Beat every 5 minutes), creating a `BillPayment` execution record and publishing `bill.scheduled` / `bill.executed` / `bill.failed` outbox events.
 
 ## End-to-end flow
 
@@ -48,6 +52,14 @@ Three tracks running together:
 ### Reconciliation
 13. Celery Beat fires nightly -- reconciliation job creates a `ReconciliationRun`, checks each settled payment against Stripe, writes `ReconciliationDiscrepancy` rows for mismatches, publishes `reconciliation.mismatch` outbox event per mismatch so the notifications consumer can alert
 
+### Bill payments
+14. `POST /payees` creates payees (utility/credit_card/mortgage/other)
+15. `POST /bills` creates active bills with amount/currency/frequency/next due date
+16. Celery Beat runs bill scheduler every 5 minutes, finds due active bills, and executes each bill via payment authorization flow
+17. Manual execution endpoint (`POST /bills/{id}/execute`) uses the same service path
+18. On success: `BillPayment(status=succeeded)` created, bill advanced (or completed for `one_time`), `bill.executed` outbox event queued
+19. On failure: `BillPayment(status=failed)` created, due date unchanged, `bill.failed` outbox event queued
+
 ## Project structure
 
 ```
@@ -56,6 +68,8 @@ payments-platform/
     api/                      FastAPI backend
       app/
         payments/             payment processing (authorize, capture, refund, webhooks)
+        payees/               payee CRUD for bill payments
+        bills/                bill scheduling, execution records, manual execute endpoint
         ledger/               double-entry ledger (accounts, transactions, entries)
         fraud/                FraudSignal model + GET /fraud/signals
         notifications/        NotificationLog model + NotificationSender Protocol/adapters
@@ -70,12 +84,15 @@ payments-platform/
       shared/                 DB, processors, notification senders, enums, exceptions, settings, logger
       workers/
         exchanges.py          PAYMENTS_EXCHANGE, ISSUER_EXCHANGE constants
-        producers/payments/   outbox_poller -- reads DB, publishes to RabbitMQ
+        producers/            outbox_poller -- reads DB, publishes to RabbitMQ (payments/issuer routing by event prefix)
         consumers/payments/   fraud, notifications, reporting consumers
+        consumers/issuer/     card_activity, risk consumers
+        jobs/bills/           scheduler (5m), executor
         jobs/payments/        reconciliation -- nightly Stripe comparison
-      alembic/                migrations
+        jobs/issuer/          hold_expiry -- hourly stale hold cleanup
+      alembic/                migrations (includes payees/bills migration)
       scripts/                seed scripts
-      tests/                  pytest suite (fraud, notifications, reporting, reconciliation, payments, ledger, issuer)
+      tests/                  pytest suite (payees, bills, fraud, notifications, reporting, reconciliation, payments, ledger, issuer)
       Dockerfile              shared image for api + all worker services
     web/                      Next.js dummy frontend for E2E testing
   docker-compose.yml          full stack: postgres, redis, rabbitmq, api, workers, consumers
@@ -93,7 +110,7 @@ export STRIPE_WEBHOOK_SECRET=whsec_...
 docker compose up --build
 ```
 
-This starts everything: postgres, redis, rabbitmq, api (port 8000), celery-beat, outbox-poller, consumer-fraud, consumer-notifications, consumer-reporting.
+This starts everything: postgres, redis, rabbitmq, api (port 8000), celery-beat, outbox-poller, consumer-fraud, consumer-notifications, consumer-reporting, consumer-card-activity, consumer-issuer-risk.
 
 ### Option B -- Local development
 
@@ -150,7 +167,7 @@ Copy the printed `whsec_...` into `apps/api/.env` as `STRIPE_WEBHOOK_SECRET` and
 ```bash
 # from apps/api/
 
-# Celery worker (runs outbox poller + reconciliation tasks)
+# Celery worker (runs outbox poller + bill scheduler + hold expiry + reconciliation tasks)
 poetry run celery -A workers.celery_app worker --loglevel=info
 
 # Celery Beat scheduler
@@ -160,6 +177,8 @@ poetry run celery -A workers.celery_app beat --loglevel=info
 poetry run python -m workers.consumers.payments.fraud
 poetry run python -m workers.consumers.payments.notifications
 poetry run python -m workers.consumers.payments.reporting
+poetry run python -m workers.consumers.issuer.card_activity
+poetry run python -m workers.consumers.issuer.risk
 ```
 
 ## API endpoints
@@ -170,15 +189,29 @@ poetry run python -m workers.consumers.payments.reporting
 | POST | `/payments/capture` | Capture an authorized payment |
 | POST | `/payments/refund` | Refund a captured payment |
 | POST | `/payments/webhooks/stripe` | Stripe webhook receiver |
+| POST | `/payees` | Create a payee |
+| GET  | `/payees` | List payees |
+| GET  | `/payees/{id}` | Get payee detail |
+| POST | `/bills` | Create/schedule a bill |
+| GET  | `/bills` | List bills (optional status filter) |
+| GET  | `/bills/{id}` | Get bill detail + execution history |
+| POST | `/bills/{id}/execute` | Manually execute a bill |
+| PATCH | `/bills/{id}` | Update bill (pause/resume/amount/frequency/date/card) |
 | GET  | `/fraud/signals` | List fraud signals with optional `risk_level` filter |
 | GET  | `/reporting/summary` | Daily volume grouped by event_type and currency |
 | GET  | `/reconciliation/runs` | List reconciliation job runs |
 | GET  | `/reconciliation/discrepancies` | List discrepancies with optional `run_id` filter |
 | POST | `/issuer/cardholders` | Create a cardholder |
+| GET  | `/issuer/cardholders/{cardholder_id}` | Get cardholder detail |
 | POST | `/issuer/cards` | Issue a card with credit limit |
+| GET  | `/issuer/cards/{id}` | Get card detail |
 | GET  | `/issuer/cards/{id}/balance` | Get available credit and pending holds |
+| GET  | `/issuer/cards/{id}/controls/mcc-blocks` | List MCC blocks |
 | POST | `/issuer/cards/{id}/controls/mcc-blocks` | Block an MCC category |
+| DELETE | `/issuer/cards/{id}/controls/mcc-blocks/{mcc}` | Remove MCC block |
+| GET  | `/issuer/cards/{id}/controls/velocity-rules` | List velocity rules |
 | POST | `/issuer/cards/{id}/controls/velocity-rules` | Add a velocity spend limit |
+| DELETE | `/issuer/cards/{id}/controls/velocity-rules/{rule_id}` | Remove velocity rule |
 | GET  | `/_live` | Liveness check |
 
 ## Environment variables
