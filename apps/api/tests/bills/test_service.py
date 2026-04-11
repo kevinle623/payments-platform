@@ -106,7 +106,7 @@ async def test_execute_bill_happy_path_creates_bill_payment_and_advances_due_dat
         next_due_date=datetime(2026, 1, 31, tzinfo=timezone.utc),
     )
 
-    with patch("app.bills.service.get_processor", return_value=mock_processor):
+    with patch("app.bills.service.get_bill_processor", return_value=mock_processor):
         execution = await service.execute_bill(
             session=session,
             bill_id=bill.id,
@@ -147,7 +147,7 @@ async def test_execute_bill_failure_records_failed_execution(
     )
     mock_processor.create_payment_intent.side_effect = Exception("processor down")
 
-    with patch("app.bills.service.get_processor", return_value=mock_processor):
+    with patch("app.bills.service.get_bill_processor", return_value=mock_processor):
         execution = await service.execute_bill(
             session=session,
             bill_id=bill.id,
@@ -187,7 +187,7 @@ async def test_execute_bill_one_time_marks_completed(
         next_due_date=datetime(2026, 4, 4, tzinfo=timezone.utc),
     )
 
-    with patch("app.bills.service.get_processor", return_value=mock_processor):
+    with patch("app.bills.service.get_bill_processor", return_value=mock_processor):
         execution = await service.execute_bill(
             session=session,
             bill_id=bill.id,
@@ -212,7 +212,7 @@ async def test_manual_trigger_is_idempotent_for_completed_one_time_bill(
         next_due_date=datetime(2026, 4, 4, tzinfo=timezone.utc),
     )
 
-    with patch("app.bills.service.get_processor", return_value=mock_processor):
+    with patch("app.bills.service.get_bill_processor", return_value=mock_processor):
         first = await service.execute_bill(
             session=session,
             bill_id=bill.id,

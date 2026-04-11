@@ -16,7 +16,7 @@ from app.payments.schemas import AuthorizeRequest
 from shared.enums.currency import Currency
 from shared.exceptions import PaymentNotFoundError
 from shared.logger import get_logger
-from shared.processors.factory import get_processor
+from shared.processors.factory import get_bill_processor
 from shared.settings import EXPENSE_ACCOUNT_ID, LIABILITY_ACCOUNT_ID
 
 logger = get_logger(__name__)
@@ -212,7 +212,7 @@ async def execute_bill(
                 },
                 card_id=bill.card_id,
             ),
-            processor=get_processor(),
+            processor=get_bill_processor(),
             expense_account_id=uuid.UUID(EXPENSE_ACCOUNT_ID),
             liability_account_id=uuid.UUID(LIABILITY_ACCOUNT_ID),
         )

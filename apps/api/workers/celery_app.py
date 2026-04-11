@@ -9,6 +9,7 @@ celery_app = Celery(
         "workers.producers.outbox_poller",
         "workers.jobs.bills.scheduler",
         "workers.jobs.payments.reconciliation",
+        "workers.jobs.payments.ach_settlement",
         "workers.jobs.issuer.hold_expiry",
     ],
 )
@@ -23,6 +24,7 @@ celery_app.conf.update(
         "workers.jobs.bills.scheduler.run_bill_scheduler": {"queue": "jobs"},
         "workers.jobs.issuer.hold_expiry.run_hold_expiry": {"queue": "jobs"},
         "workers.jobs.payments.reconciliation.run_reconciliation": {"queue": "jobs"},
+        "workers.jobs.payments.ach_settlement.run_ach_settlement": {"queue": "jobs"},
     },
     beat_schedule={
         "poll-outbox": {
@@ -40,6 +42,10 @@ celery_app.conf.update(
         "schedule-bills": {
             "task": "workers.jobs.bills.scheduler.run_bill_scheduler",
             "schedule": 300.0,  # every 5 minutes
+        },
+        "settle-ach-payments": {
+            "task": "workers.jobs.payments.ach_settlement.run_ach_settlement",
+            "schedule": 120.0,  # every 2 minutes
         },
     },
 )

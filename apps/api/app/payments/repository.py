@@ -138,6 +138,18 @@ async def fail(
     return PaymentRecord.model_validate(updated)
 
 
+async def get_pending_ach(
+    session: AsyncSession,
+) -> list[PaymentRecord]:
+    result = await session.execute(
+        select(Payment)
+        .where(Payment.status == PaymentStatus.PENDING)
+        .where(Payment.processor == "ach")
+        .order_by(Payment.created_at)
+    )
+    return [PaymentRecord.model_validate(row) for row in result.scalars().all()]
+
+
 async def get_settled_since(
     session: AsyncSession,
     since: datetime,

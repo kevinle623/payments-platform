@@ -7,8 +7,9 @@ from shared.enums.processor import SupportedProcessorType
 
 load_dotenv()
 
-STRIPE_SECRET_KEY = environ["STRIPE_SECRET_KEY"]
-STRIPE_WEBHOOK_SECRET = environ["STRIPE_WEBHOOK_SECRET"]
+# Stripe keys are only required when PROCESSOR=stripe
+STRIPE_SECRET_KEY = environ.get("STRIPE_SECRET_KEY", "")
+STRIPE_WEBHOOK_SECRET = environ.get("STRIPE_WEBHOOK_SECRET", "")
 
 DATABASE_URL = environ.get(
     "DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/payments"
@@ -17,6 +18,10 @@ REDIS_URL = environ.get("REDIS_URL", "redis://localhost:6379/0")
 RABBITMQ_URL = environ.get("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
 PROCESSOR = SupportedProcessorType(
     environ.get("PROCESSOR", SupportedProcessorType.STRIPE)
+)
+# Bill payments use a separate processor -- defaults to ACH (bank-to-bank direct debit)
+BILL_PROCESSOR = SupportedProcessorType(
+    environ.get("BILL_PROCESSOR", SupportedProcessorType.ACH)
 )
 
 EXPENSE_ACCOUNT_ID = environ.get(
