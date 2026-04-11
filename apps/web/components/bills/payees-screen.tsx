@@ -9,6 +9,7 @@ import { PageHeader } from "@/components/common/page-header";
 import { PaginationBar } from "@/components/common/pagination-bar";
 import { useCreatePayee, usePayees } from "@/lib/hooks/use-payees";
 import type { Payee, PayeeType } from "@/lib/api/types";
+import { isDigitsOnly, normalizeCurrencyCode } from "@/lib/utils/forms";
 import { formatDateTime, truncateId } from "@/lib/utils/format";
 import { parseNonNegativeInt } from "@/lib/utils/params";
 import { useSearchParams } from "next/navigation";
@@ -76,21 +77,28 @@ export function PayeesScreen() {
   const [accountNumber, setAccountNumber] = useState("");
   const [routingNumber, setRoutingNumber] = useState("");
   const [currency, setCurrency] = useState("usd");
+  const [formError, setFormError] = useState<string | null>(null);
 
   const onSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (!isDigitsOnly(accountNumber) || !isDigitsOnly(routingNumber)) {
+      setFormError("Account and routing numbers must contain digits only.");
+      return;
+    }
+    setFormError(null);
     await createPayee.create({
       name,
       payee_type: payeeType,
       account_number: accountNumber,
       routing_number: routingNumber,
-      currency,
+      currency: normalizeCurrencyCode(currency),
     });
     setName("");
     setPayeeType("utility");
     setAccountNumber("");
     setRoutingNumber("");
     setCurrency("usd");
+    setFormError(null);
     await mutate();
   };
 
@@ -127,6 +135,8 @@ export function PayeesScreen() {
           value={accountNumber}
           onChange={(event) => setAccountNumber(event.target.value)}
           placeholder="Account number"
+          inputMode="numeric"
+          pattern="\d+"
           required
           className="rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
         />
@@ -134,6 +144,8 @@ export function PayeesScreen() {
           value={routingNumber}
           onChange={(event) => setRoutingNumber(event.target.value)}
           placeholder="Routing number"
+          inputMode="numeric"
+          pattern="\d+"
           required
           className="rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
         />
@@ -153,6 +165,9 @@ export function PayeesScreen() {
             {createPayee.isLoading ? "Saving..." : "Create"}
           </button>
         </div>
+        {formError ? (
+          <p className="md:col-span-6 text-sm text-danger">{formError}</p>
+        ) : null}
       </form>
 
       <DataTable

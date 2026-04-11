@@ -19,6 +19,7 @@ import {
   useCardAuthorizations,
   useCardBalance,
 } from "@/lib/hooks/use-cards";
+import { useCardholders } from "@/lib/hooks/use-cardholders";
 import type { CardAuthorization } from "@/lib/api/types";
 import { formatDateTime } from "@/lib/utils/format";
 import { getFirstParamValue } from "@/lib/utils/params";
@@ -34,6 +35,15 @@ export function CardDetailScreen() {
     limit: 100,
     offset: 0,
   });
+  const { data: cardholders } = useCardholders({ limit: 500, offset: 0 });
+  const cardData = card.data;
+  const cardholder = useMemo(
+    () =>
+      cardData
+        ? cardholders.find((entry) => entry.id === cardData.cardholder_id)
+        : undefined,
+    [cardData, cardholders],
+  );
 
   const authColumns = useMemo<DataTableColumn<CardAuthorization>[]>(
     () => [
@@ -92,7 +102,11 @@ export function CardDetailScreen() {
         <div className="space-y-4">
           <PageHeader
             title={`Card ${card.data.id}`}
-            description="Card details and issuer activity"
+            description={
+              cardholder
+                ? `Card details and issuer activity for ${cardholder.name}`
+                : "Card details and issuer activity"
+            }
           />
           <KeyValueList
             items={[
@@ -101,8 +115,15 @@ export function CardDetailScreen() {
                 value: <CopyableId value={card.data.id} head={8} tail={6} />,
               },
               {
-                label: "Cardholder ID",
-                value: (
+                label: "Cardholder",
+                value: cardholder ? (
+                  <div className="space-y-0.5">
+                    <p>{cardholder.name}</p>
+                    <p className="text-xs text-foreground-subtle">
+                      {cardholder.email}
+                    </p>
+                  </div>
+                ) : (
                   <CopyableId
                     value={card.data.cardholder_id}
                     head={8}

@@ -13,8 +13,13 @@ import { PaginationBar } from "@/components/common/pagination-bar";
 import { useCards, useCreateCard } from "@/lib/hooks/use-cards";
 import { useCardholders } from "@/lib/hooks/use-cardholders";
 import type { Card } from "@/lib/api/types";
+import {
+  isValidLastFour,
+  normalizeCurrencyCode,
+  parseMajorAmountToMinor,
+} from "@/lib/utils/forms";
 import { parseNonNegativeInt } from "@/lib/utils/params";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 export function CardsListScreen() {
   const router = useRouter();
@@ -25,11 +30,16 @@ export function CardsListScreen() {
   const { data, error, isLoading, mutate } = useCards({ limit, offset });
   const { data: cardholders } = useCardholders({ limit: 200, offset: 0 });
   const createCard = useCreateCard();
+  const cardholderById = useMemo(
+    () => new Map(cardholders.map((cardholder) => [cardholder.id, cardholder])),
+    [cardholders],
+  );
 
   const [cardholderId, setCardholderId] = useState("");
   const [creditLimitMajor, setCreditLimitMajor] = useState("1000");
   const [currency, setCurrency] = useState("usd");
   const [lastFour, setLastFour] = useState("");
+  const [formError, setFormError] = useState<string | null>(null);
 
   const columns: DataTableColumn<Card>[] = [
     {
@@ -40,9 +50,17 @@ export function CardsListScreen() {
     {
       key: "cardholder_id",
       header: "Cardholder",
-      render: (row) => (
-        <CopyableId value={row.cardholder_id} head={8} tail={6} />
-      ),
+      render: (row) => {
+        const cardholder = cardholderById.get(row.cardholder_id);
+        return cardholder ? (
+          <div className="space-y-0.5">
+            <p className="font-medium text-foreground">{cardholder.name}</p>
+            <p className="text-xs text-foreground-subtle">{cardholder.email}</p>
+          </div>
+        ) : (
+          <CopyableId value={row.cardholder_id} head={8} tail={6} />
+        );
+      },
     },
     {
       key: "last_four",
@@ -85,19 +103,28 @@ export function CardsListScreen() {
       <form
         onSubmit={async (event) => {
           event.preventDefault();
-          const creditLimit = Math.round(
-            Number.parseFloat(creditLimitMajor) * 100,
-          );
+          const normalizedCurrency = normalizeCurrencyCode(currency);
+          const creditLimit = parseMajorAmountToMinor(creditLimitMajor);
+          if (creditLimit === null) {
+            setFormError("Credit limit must be greater than 0.");
+            return;
+          }
+          if (!isValidLastFour(lastFour)) {
+            setFormError("Last four must be exactly 4 digits.");
+            return;
+          }
+          setFormError(null);
           await createCard.create({
             cardholder_id: cardholderId,
             credit_limit: creditLimit,
-            currency,
+            currency: normalizedCurrency,
             last_four: lastFour || null,
           });
           setCardholderId("");
           setCreditLimitMajor("1000");
           setCurrency("usd");
           setLastFour("");
+          setFormError(null);
           await mutate();
         }}
         className="grid gap-3 rounded-xl border border-border bg-card p-4 md:grid-cols-5"
@@ -120,7 +147,7 @@ export function CardsListScreen() {
           onChange={(event) => setCreditLimitMajor(event.target.value)}
           type="number"
           step="0.01"
-          min="0"
+          min="0.01"
           required
           placeholder="Credit limit"
           className="rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
@@ -129,6 +156,8 @@ export function CardsListScreen() {
           value={lastFour}
           onChange={(event) => setLastFour(event.target.value)}
           maxLength={4}
+          inputMode="numeric"
+          pattern="\d{4}"
           placeholder="Last four (optional)"
           className="rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
         />
@@ -139,6 +168,9 @@ export function CardsListScreen() {
         >
           {createCard.isLoading ? "Issuing..." : "Issue card"}
         </button>
+        {formError ? (
+          <p className="md:col-span-5 text-sm text-danger">{formError}</p>
+        ) : null}
       </form>
 
       <DataTable

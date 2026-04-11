@@ -16,6 +16,8 @@ import { LoadingSkeleton } from "@/components/common/loading-skeleton";
 import { PageHeader } from "@/components/common/page-header";
 import { StatusBadge } from "@/components/common/status-badge";
 import { useBill, useExecuteBill, useUpdateBill } from "@/lib/hooks/use-bills";
+import { useCard } from "@/lib/hooks/use-cards";
+import { usePayees } from "@/lib/hooks/use-payees";
 import type { BillPayment } from "@/lib/api/types";
 import { formatDateTime } from "@/lib/utils/format";
 import { getFirstParamValue } from "@/lib/utils/params";
@@ -24,8 +26,10 @@ export function BillDetailScreen() {
   const params = useParams<{ id: string }>();
   const billId = getFirstParamValue(params.id);
   const { data, error, isLoading, mutate } = useBill(billId);
+  const card = useCard(data?.bill.card_id);
   const executeBill = useExecuteBill();
   const updateBill = useUpdateBill();
+  const { data: payees } = usePayees({ limit: 500, offset: 0 });
 
   const columns: DataTableColumn<BillPayment>[] = [
     {
@@ -83,6 +87,7 @@ export function BillDetailScreen() {
   }
 
   const bill = data.bill;
+  const payee = payees.find((entry) => entry.id === bill.payee_id);
   const canToggleStatus = bill.status === "active" || bill.status === "paused";
   const nextStatus = bill.status === "active" ? "paused" : "active";
 
@@ -124,6 +129,11 @@ export function BillDetailScreen() {
                   disabled={updateBill.isLoading}
                   onClick={async () => {
                     if (!billId) return;
+                    const action = nextStatus === "paused" ? "pause" : "resume";
+                    const confirmed = window.confirm(
+                      `Are you sure you want to ${action} this bill?`,
+                    );
+                    if (!confirmed) return;
                     await updateBill.update(billId, { status: nextStatus });
                     await mutate();
                   }}
@@ -149,8 +159,17 @@ export function BillDetailScreen() {
             value: <CopyableId value={bill.id} head={8} tail={6} />,
           },
           {
-            label: "Payee ID",
-            value: <CopyableId value={bill.payee_id} head={8} tail={6} />,
+            label: "Payee",
+            value: payee ? (
+              <div className="space-y-0.5">
+                <p>{payee.name}</p>
+                <p className="text-xs text-foreground-subtle">
+                  {payee.payee_type}
+                </p>
+              </div>
+            ) : (
+              <CopyableId value={bill.payee_id} head={8} tail={6} />
+            ),
           },
           {
             label: "Card ID",
@@ -159,7 +178,9 @@ export function BillDetailScreen() {
                 href={`/cards/${bill.card_id}`}
                 className="text-primary hover:text-primary-hover"
               >
-                <CopyableId value={bill.card_id} head={8} tail={6} />
+                {card.data?.last_four
+                  ? `•••• ${card.data.last_four}`
+                  : bill.card_id.slice(0, 8)}
               </Link>
             ) : (
               "-"

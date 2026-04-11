@@ -9,8 +9,13 @@ import { ErrorState } from "@/components/common/error-state";
 import { PageHeader } from "@/components/common/page-header";
 import { useCreateBill } from "@/lib/hooks/use-bills";
 import { useCards } from "@/lib/hooks/use-cards";
+import { useCardholders } from "@/lib/hooks/use-cardholders";
 import { usePayees } from "@/lib/hooks/use-payees";
 import type { BillFrequency } from "@/lib/api/types";
+import {
+  normalizeCurrencyCode,
+  parseMajorAmountToMinor,
+} from "@/lib/utils/forms";
 
 const FREQUENCIES: BillFrequency[] = [
   "one_time",
@@ -37,6 +42,14 @@ export function NewBillScreen() {
     limit: 200,
     offset: 0,
   });
+  const {
+    data: cardholders,
+    error: cardholdersError,
+    isLoading: cardholdersLoading,
+  } = useCardholders({
+    limit: 500,
+    offset: 0,
+  });
   const createBill = useCreateBill();
 
   const [payeeId, setPayeeId] = useState("");
@@ -45,6 +58,11 @@ export function NewBillScreen() {
   const [currency, setCurrency] = useState("usd");
   const [frequency, setFrequency] = useState<BillFrequency>("monthly");
   const [nextDueDate, setNextDueDate] = useState("");
+  const [formError, setFormError] = useState<string | null>(null);
+  const cardholderById = useMemo(
+    () => new Map(cardholders.map((cardholder) => [cardholder.id, cardholder])),
+    [cardholders],
+  );
 
   const canSubmit = useMemo(
     () =>
@@ -52,15 +70,20 @@ export function NewBillScreen() {
     [payeeId, amountMajor, currency, frequency, nextDueDate],
   );
 
-  if (payeesError || cardsError) {
+  if (payeesError || cardsError || cardholdersError) {
     return (
       <ErrorState
-        error={payeesError ?? cardsError ?? new Error("Unknown error")}
+        error={
+          payeesError ??
+          cardsError ??
+          cardholdersError ??
+          new Error("Unknown error")
+        }
       />
     );
   }
 
-  if (payeesLoading || cardsLoading) {
+  if (payeesLoading || cardsLoading || cardholdersLoading) {
     return (
       <div className="rounded-xl border border-border bg-card p-4 text-sm text-foreground-muted">
         Loading dependencies...
@@ -103,15 +126,20 @@ export function NewBillScreen() {
       <form
         onSubmit={async (event) => {
           event.preventDefault();
-          const parsedAmount = Number.parseFloat(amountMajor);
-          const minorUnits = Math.round(parsedAmount * 100);
+          const minorUnits = parseMajorAmountToMinor(amountMajor);
+          if (minorUnits === null) {
+            setFormError("Amount must be greater than 0.");
+            return;
+          }
           const dueIso = new Date(`${nextDueDate}T00:00:00.000Z`).toISOString();
+          const normalizedCurrency = normalizeCurrencyCode(currency);
+          setFormError(null);
 
           const bill = await createBill.create({
             payee_id: payeeId,
             card_id: cardId || null,
             amount: minorUnits,
-            currency,
+            currency: normalizedCurrency,
             frequency,
             next_due_date: dueIso,
           });
@@ -145,11 +173,20 @@ export function NewBillScreen() {
             className="w-full rounded-md border border-border bg-background px-3 py-2 text-foreground"
           >
             <option value="">No linked card</option>
-            {cards.map((card) => (
-              <option key={card.id} value={card.id}>
-                {card.last_four ? `•••• ${card.last_four}` : card.id}
-              </option>
-            ))}
+            {cards.map((card) => {
+              const cardholder = cardholderById.get(card.cardholder_id);
+              const prefix = cardholder
+                ? `${cardholder.name} · `
+                : `${card.cardholder_id.slice(0, 8)} · `;
+              const label = card.last_four
+                ? `${prefix}•••• ${card.last_four}`
+                : `${prefix}${card.id.slice(0, 8)}`;
+              return (
+                <option key={card.id} value={card.id}>
+                  {label}
+                </option>
+              );
+            })}
           </select>
         </label>
 
@@ -160,7 +197,7 @@ export function NewBillScreen() {
             onChange={(event) => setAmountMajor(event.target.value)}
             type="number"
             step="0.01"
-            min="0"
+            min="0.01"
             required
             className="w-full rounded-md border border-border bg-background px-3 py-2 text-foreground"
           />
@@ -212,6 +249,9 @@ export function NewBillScreen() {
           >
             {createBill.isLoading ? "Creating..." : "Create bill"}
           </button>
+          {formError ? (
+            <p className="mt-2 text-sm text-danger">{formError}</p>
+          ) : null}
         </div>
       </form>
     </div>

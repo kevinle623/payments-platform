@@ -14,9 +14,11 @@ import { PageHeader } from "@/components/common/page-header";
 import { PaginationBar } from "@/components/common/pagination-bar";
 import { StatusBadge } from "@/components/common/status-badge";
 import { useBills } from "@/lib/hooks/use-bills";
+import { usePayees } from "@/lib/hooks/use-payees";
 import type { Bill, BillStatus } from "@/lib/api/types";
 import { formatDateTime, formatRelative } from "@/lib/utils/format";
 import { parseNonNegativeInt } from "@/lib/utils/params";
+import { useMemo } from "react";
 
 const BILL_STATUSES: BillStatus[] = ["active", "paused", "completed", "failed"];
 
@@ -39,6 +41,11 @@ export function BillsListScreen() {
     limit,
     offset,
   });
+  const { data: payees } = usePayees({ limit: 500, offset: 0 });
+  const payeeById = useMemo(
+    () => new Map(payees.map((payee) => [payee.id, payee])),
+    [payees],
+  );
 
   const columns: DataTableColumn<Bill>[] = [
     {
@@ -49,7 +56,17 @@ export function BillsListScreen() {
     {
       key: "payee_id",
       header: "Payee",
-      render: (row) => <CopyableId value={row.payee_id} head={8} tail={6} />,
+      render: (row) => {
+        const payee = payeeById.get(row.payee_id);
+        return payee ? (
+          <div className="space-y-0.5">
+            <p className="font-medium text-foreground">{payee.name}</p>
+            <p className="text-xs text-foreground-subtle">{payee.payee_type}</p>
+          </div>
+        ) : (
+          <CopyableId value={row.payee_id} head={8} tail={6} />
+        );
+      },
     },
     {
       key: "amount",
