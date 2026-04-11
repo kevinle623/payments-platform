@@ -33,10 +33,7 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     label: "Acquiring",
-    items: [
-      { label: "Payments", href: "/payments", icon: CreditCard },
-      { label: "Fraud signals", href: "/fraud", icon: ShieldAlert },
-    ],
+    items: [{ label: "Payments", href: "/payments", icon: CreditCard }],
   },
   {
     label: "Issuing",
@@ -55,6 +52,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Observability",
     items: [
+      { label: "Fraud signals", href: "/fraud", icon: ShieldAlert },
       { label: "Reporting", href: "/reporting", icon: BarChart3 },
       {
         label: "Reconciliation",

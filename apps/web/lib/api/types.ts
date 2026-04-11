@@ -89,6 +89,7 @@ export interface Cardholder {
   id: string;
   name: string;
   email: string;
+  status: "active" | "suspended" | "closed";
   created_at: string;
 }
 
@@ -100,18 +101,21 @@ export interface CreateCardholderInput {
 export interface Card {
   id: string;
   cardholder_id: string;
-  cardholder_name: string;
-  last_four: string;
+  available_balance_account_id: string;
+  pending_hold_account_id: string;
+  last_four: string | null;
   credit_limit: number;
   currency: Currency;
   status: "active" | "frozen" | "closed";
   created_at: string;
+  updated_at: string;
 }
 
 export interface CreateCardInput {
   cardholder_id: string;
   credit_limit: number;
   currency: Currency;
+  last_four?: string | null;
 }
 
 export interface CardBalance {
@@ -119,11 +123,10 @@ export interface CardBalance {
   credit_limit: number;
   available_credit: number;
   pending_holds: number;
-  posted_balance: number;
   currency: Currency;
 }
 
-export interface Authorization {
+export interface CardAuthorization {
   id: string;
   idempotency_key: string;
   card_id: string | null;
@@ -188,6 +191,11 @@ export interface BillDetail {
   payments: BillPayment[];
 }
 
+export interface BillExecutionResponse {
+  bill: Bill;
+  bill_payment: BillPayment;
+}
+
 export interface CreateBillInput {
   payee_id: string;
   card_id?: string | null;
@@ -198,6 +206,7 @@ export interface CreateBillInput {
 }
 
 export interface UpdateBillInput {
+  card_id?: string | null;
   amount?: number;
   status?: BillStatus;
   frequency?: BillFrequency;
@@ -206,13 +215,12 @@ export interface UpdateBillInput {
 
 // ---------------- Fraud ----------------
 
-export type RiskLevel = "low" | "medium" | "high";
+export type RiskLevel = "low" | "high";
 
 export interface FraudSignal {
   id: string;
   payment_id: string;
   risk_level: RiskLevel;
-  reason: string;
   amount: number;
   currency: Currency;
   flagged_at: string;
@@ -222,22 +230,20 @@ export interface FraudSignal {
 
 export interface ReconciliationRun {
   id: string;
-  status: "running" | "completed" | "failed";
   started_at: string;
-  finished_at: string | null;
-  total_checked: number;
-  mismatch_count: number;
+  completed_at: string | null;
+  checked: number;
+  mismatches: number;
 }
 
 export interface ReconciliationDiscrepancy {
   id: string;
   run_id: string;
   payment_id: string;
-  expected_amount: number;
-  actual_amount: number;
-  diff: number;
-  reason: string;
-  created_at: string;
+  processor_payment_id: string;
+  our_status: string;
+  stripe_status: string;
+  detected_at: string;
 }
 
 // ---------------- Reporting ----------------
@@ -246,6 +252,6 @@ export interface ReportingSummaryRow {
   date: string;
   event_type: string;
   currency: Currency;
+  total_amount: number;
   count: number;
-  volume: number;
 }

@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "prettier": "prettier .",
     "test:unit": "node ./node_modules/vitest/vitest.mjs run --config vitest.config.mts",
     "test:unit:watch": "node ./node_modules/vitest/vitest.mjs --config vitest.config.mts"
   },
@@ -32,6 +33,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.1",
     "jsdom": "^26.1.0",
+    "prettier": "^3.6.2",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^3.2.4"
