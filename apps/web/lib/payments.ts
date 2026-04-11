@@ -13,7 +13,7 @@ export interface AuthorizeResponse {
 
 export async function authorizePayment(
   amount: number,
-  currency: string
+  currency: string,
 ): Promise<AuthorizeResponse> {
   const res = await fetch(`${API_BASE}/payments/authorize`, {
     method: "POST",

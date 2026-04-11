@@ -8,7 +8,7 @@ interface AuthorizeArgs {
 
 async function authorize(
   _key: string,
-  { arg }: { arg: AuthorizeArgs }
+  { arg }: { arg: AuthorizeArgs },
 ): Promise<AuthorizeResponse> {
   return authorizePayment(arg.amount, arg.currency);
 }
@@ -16,7 +16,7 @@ async function authorize(
 export function useAuthorize() {
   const { trigger, data, error, isMutating } = useSWRMutation(
     "payments/authorize",
-    authorize
+    authorize,
   );
 
   return {

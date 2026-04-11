@@ -10,7 +10,7 @@ A payments platform monorepo with a FastAPI backend (`apps/api/`) and Next.js du
 
 **Repo:** https://github.com/kevinle623/payments-platform
 
-**Status snapshot (April 5, 2026):** Tasks 6 through 11 are implemented; bill payments, dashboard backend read APIs, and bill downstream consumer wiring are complete in code. Latest migration: `637e756014ea_add_payees_and_bills_tables.py`.
+**Status snapshot (April 11, 2026):** All backend tasks complete. Bill consumer integration tests, RabbitMQ dead-lettering, ACH processor adapter with async settlement job, and processor factory split (`get_processor` for card/checkout, `get_bill_processor` for bills) are all implemented and tested. Frontend dashboard is the only remaining work. Latest migration: `637e756014ea_add_payees_and_bills_tables.py`.
 
 ---
 
@@ -72,10 +72,11 @@ payments-platform/              (monorepo root)
           base.py               -- DeclarativeBase
         processors/
           adapters/
-            stripe.py           -- StripeAdapter
+            stripe.py           -- StripeAdapter (card/checkout payments)
+            ach.py              -- ACHAdapter (bill payments, synthetic IDs, PENDING->SUCCEEDED via settlement job)
             braintree.py        -- stub
           base.py               -- PaymentProcessor Protocol, normalized DTOs
-          factory.py            -- get_processor() based on PROCESSOR setting
+          factory.py            -- get_processor() for card/checkout (PROCESSOR env), get_bill_processor() for bills (BILL_PROCESSOR env, defaults to ACH)
         enums/
           currency.py           -- Currency StrEnum
           processor.py          -- SupportedProcessorType StrEnum
@@ -85,13 +86,13 @@ payments-platform/              (monorepo root)
         exception_handlers.py   -- FastAPI exception handlers
         logger.py               -- get_logger(__name__)
       workers/
-        celery_app.py           -- Celery app, broker config, Beat schedule (outbox every 10s, bill scheduler every 5m, reconciliation every 24h, hold expiry every 1h), task routes (`outbox` and `jobs` queues)
-        exchanges.py            -- PAYMENTS_EXCHANGE, ISSUER_EXCHANGE constants (single source of truth)
+        celery_app.py           -- Celery app, broker config, Beat schedule (outbox every 10s, bill scheduler every 5m, ACH settlement every 2m, reconciliation every 24h, hold expiry every 1h), task routes (`outbox` and `jobs` queues)
+        exchanges.py            -- PAYMENTS_EXCHANGE, ISSUER_EXCHANGE, PAYMENTS_DLX, ISSUER_DLX constants (single source of truth)
         producers/
           outbox_poller.py      -- poll_and_publish Celery task: queries pending outbox rows, fans out to payments or issuer exchange based on event type prefix
                                    card.* / auth.* / hold.* -> issuer exchange | payment.* / bill.* / reconciliation.* -> payments exchange
         consumers/
-          base.py               -- generic run_consumer/start (exchange_name, queue_name, routing_keys, handler)
+          base.py               -- generic run_consumer/start with dead-lettering: declares DLX + per-queue DLQ, nacks failed messages so they route to {queue}.dlq instead of being silently dropped
           payments/
             fraud.py            -- payment.authorized -> persists FraudSignal row
             notifications.py    -- payment.* + bill.* + reconciliation.mismatch -> delivers via sender, persists NotificationLog
@@ -105,6 +106,7 @@ payments-platform/              (monorepo root)
             executor.py         -- thin execution wrapper for scheduler testability
           payments/
             reconciliation.py   -- nightly Celery task: creates ReconciliationRun, checks settled payments vs Stripe, writes ReconciliationDiscrepancy rows, publishes reconciliation.mismatch outbox events
+            ach_settlement.py   -- every 2 minutes: finds PENDING payments where processor=ach, calls handle_payment_succeeded() to simulate NACHA async settlement
           issuer/
             hold_expiry.py      -- hourly Celery task: finds IssuerAuthorization rows APPROVED + older than 7 days, calls clear_hold() for genuinely stale holds, marks EXPIRED; skips already-settled payments to prevent double-clearing ledger
       scripts/
@@ -114,12 +116,13 @@ payments-platform/              (monorepo root)
         payees/                 -- payee CRUD service tests
         bills/                  -- bill service execution + scheduler tests
         fraud/                  -- FraudSignal service tests
-        notifications/          -- NotificationLog + sender tests
-        reporting/              -- ReportingEvent + summary tests
+        notifications/          -- NotificationLog + sender tests + bill consumer integration tests
+        reporting/              -- ReportingEvent + summary tests + bill consumer integration tests
         reconciliation/         -- ReconciliationRun + discrepancy tests
         payments/               -- payment service tests
         ledger/                 -- ledger service tests
         issuer/                 -- issuer auth + settlement + hold expiry tests
+        ach/                    -- ACHAdapter unit tests, factory tests, get_pending_ach repository tests, _run settlement job integration tests
       Dockerfile                -- shared image for api + all worker services
       main.py                   -- FastAPI app entry point
       pyproject.toml            -- Poetry dependencies
@@ -138,7 +141,8 @@ payments-platform/              (monorepo root)
 ---
 
 ## Key design decisions
-- `SupportedProcessorType` StrEnum in `shared/enums/processor.py` -- fails fast if invalid processor set
+- `SupportedProcessorType` StrEnum in `shared/enums/processor.py` -- values: `stripe`, `ach`; fails fast if invalid processor set
+- `get_processor()` vs `get_bill_processor()` -- two separate factory functions; card/checkout always uses `PROCESSOR` (default `stripe`), bills always use `BILL_PROCESSOR` (default `ach`); future regions add adapters (SEPA, BACS, EFT) to `get_bill_processor()`
 - `SupportedNotificationSender` StrEnum in `shared/enums/notification_sender.py` -- same pattern for notification delivery
 - Ledger account UUIDs hardcoded in `settings.py` as `EXPENSE_ACCOUNT_ID`, `LIABILITY_ACCOUNT_ID`, `CASH_ACCOUNT_ID` -- seeded via `scripts/seed.py`
 - `stripe.PaymentIntent.create` uses `capture_method="manual"` and `automatic_payment_methods={"enabled": True, "allow_redirects": "never"}`
@@ -186,26 +190,22 @@ payments-platform/              (monorepo root)
 - **Dashboard backend APIs (Task 10)** -- added `GET /payments`, `GET /payments/{id}`, `GET /issuer/cards`, `GET /issuer/cardholders`, `GET /issuer/cards/{id}/authorizations`; payment detail aggregates ledger transactions + outbox events + issuer auth context
 - **Bill downstream consumers + worker topology (Task 11)** -- notifications/reporting consumers subscribe to `bill.*`; bill event payload contract standardized; Celery task routing split into `outbox` and `jobs` queues; Docker Compose includes dedicated `worker-jobs`
 - **Docker Compose** -- full stack containerized including `consumer-card-activity` and `consumer-issuer-risk`
+- **Bill consumer integration tests** -- `tests/notifications/test_consumer.py` tests `_handle_bill_event` for all card resolution paths; `tests/reporting/test_consumer.py` tests `_handle` persistence for all bill event types; 14 tests total
+- **RabbitMQ dead-lettering** -- `workers/consumers/base.py` declares DLX (`payments.dlx`, `issuer.dlx`) and per-queue DLQs (`{queue}.dlq`); failed messages are nacked with `requeue=False` and routed to DLQ instead of silently acked; poison messages are isolated and inspectable
+- **ACH processor adapter** -- `ACHAdapter` in `shared/processors/adapters/ach.py` implements `PaymentProcessor` Protocol; synthetic `ach_{hex}` IDs, empty `client_secret`, `PENDING` on create; `ach_settlement` Celery job (every 2 min) finds pending ACH payments and calls `handle_payment_succeeded()` to simulate NACHA async settlement; bills use `get_bill_processor()` (defaults to ACH), card checkout uses `get_processor()` (defaults to Stripe); 18 tests in `tests/ach/`
 
 ---
 
 ## What's not yet built
 - Web UI dashboard (NEXT -- see spec below)
-- ACH processor adapter (next processor for bill-routing use cases)
-- RabbitMQ consumer dead-lettering for failed messages
 - Real Twilio SMS delivery (stub is in place, needs `pip install twilio` + credentials)
 - Issuer dispute aging job
+- RabbitMQ dead-letter queue replay tooling (DLQs exist and catch poison messages, but no UI or script to inspect/replay them yet)
 
 ---
 
 ## Immediate next steps (ordered)
-1. Add integration tests for `bill.*` consumer handling paths:
-   - notifications consumer (`_handle_bill_event`)
-   - reporting consumer (`_handle` persistence for bill events)
-2. Add RabbitMQ dead-lettering/retry policy for payments consumers so poison messages do not block queues.
-3. Build web dashboard bills pages (`/bills`, `/bills/[id]`) using existing bill/payee endpoints and manual execute trigger.
-4. Build remaining web dashboard read pages for payments and issuer track using completed backend APIs.
-5. Start ACH processor adapter initiative (`shared/processors/adapters/ach.py`) with bank-account domain model and async settlement lifecycle.
+1. Build web dashboard -- all backend APIs are complete, frontend is the only remaining work (see spec below)
 
 ---
 
@@ -306,6 +306,13 @@ Completed for Payee, Bill, BillPayment:
 
 The current frontend is a minimal Stripe Elements checkout form. The goal is to extend it into a dev dashboard that visualizes the full payment lifecycle and lets you interact with the issuer track directly.
 
+### Frontend tech stack
+- **Framework:** Next.js 16 App Router, TypeScript
+- **Styling:** Tailwind CSS v4 + shadcn/ui components
+- **Data fetching:** SWR for all API calls (stale-while-revalidate, auto-revalidation, loading/error states)
+- **API base URL:** `http://localhost:8000` (proxied or direct)
+- **Patterns:** Clean functional components, custom SWR hooks per resource (e.g. `usePayments`, `useBill`, `useCards`), no prop drilling -- co-locate data fetching with the component that needs it
+
 ### Pages to build
 
 **Payment flow (acquiring side)**
@@ -315,38 +322,69 @@ The current frontend is a minimal Stripe Elements checkout form. The goal is to 
 
 **Issuer track**
 - `/cards` -- list all cards with cardholder name, last four, credit limit, available credit, pending holds
-- `/cards/[id]` -- card detail: balance breakdown, spend controls, recent authorizations
-- `/cardholders` -- list cardholders, create new cardholder form
+- `/cards/[id]` -- card detail: balance breakdown, spend controls, recent authorizations (3 parallel fetches: card info + balance + authorizations)
+- `/cardholders` -- list cardholders + create new cardholder form
 
 **Bills**
 - `/bills` -- list bills with status, payee name, amount, frequency, next_due_date
-- `/bills/[id]` -- bill detail: execution history, manual trigger button
+- `/bills/[id]` -- bill detail: execution history, manual trigger button (POST /bills/{id}/execute)
+- `/bills/new` -- create bill form: select payee from GET /payees, fill amount/frequency/due date, optionally link card
 
 **Observability**
-- `/fraud` -- list of fraud signals with risk level badge, payment id, amount, flagged_at
-- `/reconciliation` -- list of reconciliation runs with checked/mismatch counts; expand to see discrepancies
-- `/reporting` -- daily volume chart grouped by currency; event type breakdown
+- `/fraud` -- list fraud signals with risk level badge, payment id, amount, flagged_at
+- `/reconciliation` -- list reconciliation runs; expand row to lazy-load discrepancies per run via GET /reconciliation/discrepancies?run_id=
+- `/reporting` -- daily volume chart grouped by currency + event type breakdown
 
-### Backend endpoints status (completed)
-- `GET /payments` -- paginated list with optional status filter
-- `GET /payments/{id}` -- payment detail including ledger entries, outbox events, and issuer auth decision
-- `GET /issuer/cards` -- list all cards
-- `GET /issuer/cardholders` -- list all cardholders
-- `GET /issuer/cards/{id}/authorizations` -- auth history for a card
-- Validation run: `tests/payments/test_service.py` + `tests/issuer/test_cards_service.py` passed (`14 passed`)
+### All backend endpoints ready
+```
+GET    /payments                              list payments (status filter, paginated)
+GET    /payments/{id}                         payment detail (ledger + outbox + issuer auth)
+GET    /issuer/cards                          list cards
+GET    /issuer/cards/{id}                     card detail
+GET    /issuer/cards/{id}/balance             card balance + available credit
+GET    /issuer/cards/{id}/authorizations      authorization history
+GET    /issuer/cardholders                    list cardholders
+POST   /issuer/cardholders                    create cardholder
+POST   /issuer/cards                          create card
+GET    /payees                                list payees (for bill create dropdown)
+POST   /payees                                create payee
+GET    /bills                                 list bills (status filter, paginated)
+GET    /bills/{id}                            bill detail + execution history
+POST   /bills                                 create bill
+POST   /bills/{id}/execute                    manual execute trigger
+PATCH  /bills/{id}                            pause/resume/update bill
+GET    /fraud/signals                         fraud signals (risk_level filter, paginated)
+GET    /reporting/summary                     daily volume by date + event_type + currency
+GET    /reconciliation/runs                   reconciliation runs (paginated)
+GET    /reconciliation/discrepancies          discrepancies (run_id filter, paginated)
+```
 
 ---
 
-## ACH processor adapter -- NEXT
+## ACH processor adapter -- COMPLETED
 
-The processor abstraction (`shared/processors/base.py`) is already set up for this. ACH is the industry standard for bill payments (bank-to-bank, 1-3 day settlement, NACHA return codes).
+Implemented in `shared/processors/adapters/ach.py`. Bills are routed to ACH by default via `get_bill_processor()` (driven by `BILL_PROCESSOR` env var, defaults to `ach`). Card/checkout payments continue to use `get_processor()` (driven by `PROCESSOR` env var, defaults to `stripe`).
 
-Implementation plan:
-- `shared/processors/adapters/ach.py` -- `ACHAdapter` implementing the `PaymentProcessor` Protocol
-- New `BankAccount` model for storing verified bank account details (sits alongside `Card` in issuer track)
-- Bank account verification flow (micro-deposits)
-- Different status lifecycle: `pending -> processing -> settled/failed` with async returns
-- Bills can be routed to ACH via `PROCESSOR=ach` env var -- zero changes to bill service
+### What's implemented
+- `ACHAdapter` -- implements `PaymentProcessor` Protocol; `create_payment_intent` returns synthetic `ach_{hex}` ID + empty `client_secret` + `PENDING` status
+- `ach_settlement` Celery job (every 2 min) -- finds `status=PENDING AND processor=ach` payments, calls `handle_payment_succeeded()` to simulate async NACHA settlement; same settlement path as Stripe webhook so ledger, outbox, and issuer hold clearing all work identically
+- `get_pending_ach()` repository function added to `app/payments/repository.py`
+- `BILL_PROCESSOR` env var in `shared/settings.py` -- separate from `PROCESSOR`; future region adapters (SEPA, BACS, EFT) slot in here
+
+### Future extensibility
+```python
+def get_bill_processor(region: str = "us") -> PaymentProcessor:
+    if region == "us":   return ACHAdapter()
+    if region == "eu":   return SEPAAdapter()
+    if region == "uk":   return BACSAdapter()
+    if region == "ca":   return EFTAdapter()
+```
+
+### Tests
+- `tests/ach/test_adapter.py` -- 7 unit tests (synthetic IDs, unique IDs, metadata, capture, refund, parse_webhook raises)
+- `tests/ach/test_factory.py` -- 4 tests (get_processor Stripe/ACH, get_bill_processor ACH default + Stripe override)
+- `tests/ach/test_repository.py` -- 5 integration tests (pending ACH only, excludes settled/failed, multiple, empty)
+- `tests/ach/test_settlement.py` -- 4 integration tests (settles pending ACH, multiple, skips Stripe, noop when empty)
 
 ---
 
@@ -441,7 +479,8 @@ REDIS_URL=redis://localhost:6379/0
 RABBITMQ_URL=amqp://guest:guest@localhost:5672/
 STRIPE_SECRET_KEY=sk_test_...
 STRIPE_WEBHOOK_SECRET=whsec_...
-PROCESSOR=stripe
+PROCESSOR=stripe          # card/checkout processor (stripe | ach)
+BILL_PROCESSOR=ach        # bill payment processor (ach | stripe) -- defaults to ach
 EXPENSE_ACCOUNT_ID=00000000-0000-0000-0000-000000000001
 LIABILITY_ACCOUNT_ID=00000000-0000-0000-0000-000000000002
 CASH_ACCOUNT_ID=00000000-0000-0000-0000-000000000003

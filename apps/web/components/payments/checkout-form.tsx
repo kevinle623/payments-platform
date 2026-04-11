@@ -35,7 +35,8 @@ export default function CheckoutForm() {
     }
   };
 
-  const isDisabled = !stripe || status === "processing" || status === "succeeded";
+  const isDisabled =
+    !stripe || status === "processing" || status === "succeeded";
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
@@ -43,7 +44,7 @@ export default function CheckoutForm() {
       {message && (
         <p
           className={`text-sm ${
-            status === "succeeded" ? "text-success" : "text-error"
+            status === "succeeded" ? "text-success" : "text-danger"
           }`}
         >
           {message}
@@ -52,7 +53,7 @@ export default function CheckoutForm() {
       <button
         type="submit"
         disabled={isDisabled}
-        className="w-full cursor-pointer rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-white transition-all hover:bg-accent-hover active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 disabled:active:scale-100"
+        className="w-full cursor-pointer rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-all hover:bg-primary-hover active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 disabled:active:scale-100"
       >
         {status === "processing"
           ? "Processing..."

@@ -46,10 +46,10 @@ Runs at `http://localhost:3000`. Requires the FastAPI backend running at `http:/
 
 ## Environment variables
 
-| Variable | Description |
-|----------|-------------|
-| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Stripe publishable key (`pk_test_...`) |
-| `NEXT_PUBLIC_API_URL` | API base URL (default: `http://localhost:8000`) |
+| Variable                             | Description                                     |
+| ------------------------------------ | ----------------------------------------------- |
+| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Stripe publishable key (`pk_test_...`)          |
+| `NEXT_PUBLIC_API_URL`                | API base URL (default: `http://localhost:8000`) |
 
 ## Test flow
 

@@ -1,32 +1,125 @@
 @import "tailwindcss";
 
 :root {
-  --background: #111111;
-  --foreground: #111111;
-  --muted: #6b7280;
-  --border: #e5e7eb;
-  --card: #ffffff;
-  --accent: #111111;
-  --accent-hover: #333333;
-  --success: #16a34a;
-  --error: #dc2626;
+  /* Fintech dark palette - zinc/neutral base with accent colors */
+  --background: #09090b;
+  --background-elevated: #0f0f12;
+  --foreground: #fafafa;
+  --foreground-muted: #a1a1aa;
+  --foreground-subtle: #71717a;
+  --border: #27272a;
+  --border-strong: #3f3f46;
+  --card: #0f0f12;
+  --card-hover: #18181b;
+  --input: #18181b;
+  --ring: #3f3f46;
+
+  --accent: #fafafa;
+  --accent-foreground: #09090b;
+  --accent-hover: #e4e4e7;
+
+  --primary: #6366f1;
+  --primary-hover: #4f46e5;
+  --primary-foreground: #fafafa;
+
+  /* Status colors */
+  --success: #10b981;
+  --success-bg: #052e22;
+  --success-border: #064e3b;
+  --warning: #f59e0b;
+  --warning-bg: #2a1a05;
+  --warning-border: #422a0a;
+  --danger: #ef4444;
+  --danger-bg: #2c0a0a;
+  --danger-border: #4a1212;
+  --info: #38bdf8;
+  --info-bg: #082031;
+  --info-border: #0c3a52;
+  --muted-bg: #18181b;
+  --muted-border: #27272a;
 }
 
 @theme inline {
   --color-background: var(--background);
+  --color-background-elevated: var(--background-elevated);
   --color-foreground: var(--foreground);
-  --color-muted: var(--muted);
+  --color-foreground-muted: var(--foreground-muted);
+  --color-foreground-subtle: var(--foreground-subtle);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
   --color-card: var(--card);
+  --color-card-hover: var(--card-hover);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
   --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
   --color-accent-hover: var(--accent-hover);
+
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-foreground: var(--primary-foreground);
+
   --color-success: var(--success);
-  --color-error: var(--error);
+  --color-success-bg: var(--success-bg);
+  --color-success-border: var(--success-border);
+  --color-warning: var(--warning);
+  --color-warning-bg: var(--warning-bg);
+  --color-warning-border: var(--warning-border);
+  --color-danger: var(--danger);
+  --color-danger-bg: var(--danger-bg);
+  --color-danger-border: var(--danger-border);
+  --color-info: var(--info);
+  --color-info-bg: var(--info-bg);
+  --color-info-border: var(--info-border);
+  --color-muted-bg: var(--muted-bg);
+  --color-muted-border: var(--muted-border);
+
+  /* Backwards-compat aliases used by existing checkout page */
+  --color-muted: var(--foreground-muted);
+  --color-error: var(--danger);
+
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
+* {
+  border-color: var(--border);
+}
+
+html,
 body {
   background: var(--background);
   color: var(--foreground);
+}
+
+body {
+  font-feature-settings:
+    "rlig" 1,
+    "calt" 1,
+    "ss01" 1;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Subtle scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--background);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 5px;
+  border: 2px solid var(--background);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
+}
+
+/* Selection */
+::selection {
+  background: var(--primary);
+  color: var(--primary-foreground);
 }
