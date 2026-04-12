@@ -6,6 +6,7 @@ import {
 } from "@/components/common/data-table";
 import { PageHeader } from "@/components/common/page-header";
 import { PaginationBar } from "@/components/common/pagination-bar";
+import { useToast } from "@/components/common/toast-provider";
 import {
   useCardholders,
   useCreateCardholder,
@@ -37,9 +38,11 @@ export function CardholdersScreen() {
   const offset = parseNonNegativeInt(searchParams.get("offset"), 0);
   const { data, error, isLoading, mutate } = useCardholders({ limit, offset });
   const createCardholder = useCreateCardholder();
+  const { pushToast } = useToast();
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [formError, setFormError] = useState<string | null>(null);
 
   return (
     <div className="space-y-5">
@@ -51,19 +54,44 @@ export function CardholdersScreen() {
       <form
         onSubmit={async (event) => {
           event.preventDefault();
-          await createCardholder.create({ name, email });
-          setName("");
-          setEmail("");
-          await mutate();
+          try {
+            setFormError(null);
+            const cardholder = await createCardholder.create({
+              name: name.trim(),
+              email: email.trim(),
+            });
+            await mutate((current = []) => [cardholder, ...current], {
+              revalidate: false,
+            });
+            setName("");
+            setEmail("");
+            setFormError(null);
+            pushToast({
+              variant: "success",
+              title: "Cardholder created",
+              description: `${cardholder.name} can now receive issued cards.`,
+            });
+          } catch (submitError) {
+            const message =
+              submitError instanceof Error
+                ? submitError.message
+                : "Failed to create cardholder.";
+            setFormError(message);
+            pushToast({
+              variant: "error",
+              title: "Could not create cardholder",
+              description: message,
+            });
+          }
         }}
-        className="grid gap-3 rounded-xl border border-border bg-card p-4 md:grid-cols-3"
+        className="ui-form-card grid gap-3 md:grid-cols-3"
       >
         <input
           value={name}
           onChange={(event) => setName(event.target.value)}
           required
           placeholder="Full name"
-          className="rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
+          className="ui-input"
         />
         <input
           value={email}
@@ -71,15 +99,18 @@ export function CardholdersScreen() {
           type="email"
           required
           placeholder="Email address"
-          className="rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
+          className="ui-input"
         />
         <button
           type="submit"
           disabled={createCardholder.isLoading}
-          className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
+          className="ui-button-primary"
         >
           {createCardholder.isLoading ? "Creating..." : "Create cardholder"}
         </button>
+        {formError ? (
+          <p className="ui-inline-error md:col-span-3">{formError}</p>
+        ) : null}
       </form>
 
       <DataTable

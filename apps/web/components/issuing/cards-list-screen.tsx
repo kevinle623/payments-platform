@@ -10,6 +10,7 @@ import {
 } from "@/components/common/data-table";
 import { PageHeader } from "@/components/common/page-header";
 import { PaginationBar } from "@/components/common/pagination-bar";
+import { useToast } from "@/components/common/toast-provider";
 import { useCards, useCreateCard } from "@/lib/hooks/use-cards";
 import { useCardholders } from "@/lib/hooks/use-cardholders";
 import type { Card } from "@/lib/api/types";
@@ -30,6 +31,7 @@ export function CardsListScreen() {
   const { data, error, isLoading, mutate } = useCards({ limit, offset });
   const { data: cardholders } = useCardholders({ limit: 200, offset: 0 });
   const createCard = useCreateCard();
+  const { pushToast } = useToast();
   const cardholderById = useMemo(
     () => new Map(cardholders.map((cardholder) => [cardholder.id, cardholder])),
     [cardholders],
@@ -107,33 +109,63 @@ export function CardsListScreen() {
           const creditLimit = parseMajorAmountToMinor(creditLimitMajor);
           if (creditLimit === null) {
             setFormError("Credit limit must be greater than 0.");
+            pushToast({
+              variant: "error",
+              title: "Invalid credit limit",
+              description: "Credit limit must be greater than 0.",
+            });
             return;
           }
           if (!isValidLastFour(lastFour)) {
             setFormError("Last four must be exactly 4 digits.");
+            pushToast({
+              variant: "error",
+              title: "Invalid last four",
+              description: "Last four must be exactly 4 digits.",
+            });
             return;
           }
-          setFormError(null);
-          await createCard.create({
-            cardholder_id: cardholderId,
-            credit_limit: creditLimit,
-            currency: normalizedCurrency,
-            last_four: lastFour || null,
-          });
-          setCardholderId("");
-          setCreditLimitMajor("1000");
-          setCurrency("usd");
-          setLastFour("");
-          setFormError(null);
-          await mutate();
+          try {
+            setFormError(null);
+            const card = await createCard.create({
+              cardholder_id: cardholderId,
+              credit_limit: creditLimit,
+              currency: normalizedCurrency,
+              last_four: lastFour || null,
+            });
+            await mutate((current = []) => [card, ...current], {
+              revalidate: false,
+            });
+            setCardholderId("");
+            setCreditLimitMajor("1000");
+            setCurrency("usd");
+            setLastFour("");
+            setFormError(null);
+            pushToast({
+              variant: "success",
+              title: "Card issued",
+              description: "The new card is now available in the list.",
+            });
+          } catch (submitError) {
+            const message =
+              submitError instanceof Error
+                ? submitError.message
+                : "Failed to issue card.";
+            setFormError(message);
+            pushToast({
+              variant: "error",
+              title: "Could not issue card",
+              description: message,
+            });
+          }
         }}
-        className="grid gap-3 rounded-xl border border-border bg-card p-4 md:grid-cols-5"
+        className="ui-form-card grid gap-3 md:grid-cols-5"
       >
         <select
           value={cardholderId}
           onChange={(event) => setCardholderId(event.target.value)}
           required
-          className="rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground md:col-span-2"
+          className="ui-select md:col-span-2"
         >
           <option value="">Select cardholder</option>
           {cardholders.map((cardholder) => (
@@ -150,26 +182,26 @@ export function CardsListScreen() {
           min="0.01"
           required
           placeholder="Credit limit"
-          className="rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
+          className="ui-input"
         />
         <input
           value={lastFour}
           onChange={(event) => setLastFour(event.target.value)}
           maxLength={4}
           inputMode="numeric"
-          pattern="\d{4}"
+          pattern="[0-9]{4}"
           placeholder="Last four (optional)"
-          className="rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
+          className="ui-input"
         />
         <button
           type="submit"
           disabled={createCard.isLoading}
-          className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
+          className="ui-button-primary"
         >
           {createCard.isLoading ? "Issuing..." : "Issue card"}
         </button>
         {formError ? (
-          <p className="md:col-span-5 text-sm text-danger">{formError}</p>
+          <p className="ui-inline-error md:col-span-5">{formError}</p>
         ) : null}
       </form>
 

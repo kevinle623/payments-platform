@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { AmountDisplay } from "@/components/common/amount-display";
 import {
   DataTable,
@@ -8,13 +8,15 @@ import {
 } from "@/components/common/data-table";
 import { FilterBar } from "@/components/common/filter-bar";
 import { PageHeader } from "@/components/common/page-header";
+import { ReportingCharts } from "@/components/observability/reporting-charts";
 import { useReportingSummary } from "@/lib/hooks/use-reporting";
 import type { ReportingSummaryRow } from "@/lib/api/types";
 import { formatDate } from "@/lib/utils/format";
 
 export function ReportingScreen() {
-  const [since, setSince] = useState("");
-  const [until, setUntil] = useState("");
+  const searchParams = useSearchParams();
+  const since = searchParams.get("since") ?? "";
+  const until = searchParams.get("until") ?? "";
 
   const { data, error, isLoading, mutate } = useReportingSummary({
     since: since ? new Date(`${since}T00:00:00.000Z`).toISOString() : undefined,
@@ -65,39 +67,44 @@ export function ReportingScreen() {
       />
 
       <FilterBar>
-        <div className="grid gap-3 sm:grid-cols-3">
-          <label className="space-y-1 text-sm">
-            <span className="text-foreground-muted">Since</span>
-            <input
-              type="date"
-              value={since}
-              onChange={(event) => setSince(event.target.value)}
-              className="w-full rounded-md border border-border bg-background px-3 py-2 text-foreground"
-            />
-          </label>
-          <label className="space-y-1 text-sm">
-            <span className="text-foreground-muted">Until</span>
-            <input
-              type="date"
-              value={until}
-              onChange={(event) => setUntil(event.target.value)}
-              className="w-full rounded-md border border-border bg-background px-3 py-2 text-foreground"
-            />
-          </label>
-          <div className="flex items-end">
-            <button
-              type="button"
-              onClick={() => {
-                setSince("");
-                setUntil("");
-              }}
-              className="rounded-md border border-border px-3 py-2 text-sm text-foreground hover:bg-card-hover"
-            >
-              Clear dates
-            </button>
+        {({ getValue, setValues }) => (
+          <div className="grid gap-3 sm:grid-cols-3">
+            <label className="space-y-1 text-sm">
+              <span className="ui-field-label">Since</span>
+              <input
+                type="date"
+                value={getValue("since")}
+                onChange={(event) =>
+                  setValues({ since: event.target.value || null })
+                }
+                className="ui-input"
+              />
+            </label>
+            <label className="space-y-1 text-sm">
+              <span className="ui-field-label">Until</span>
+              <input
+                type="date"
+                value={getValue("until")}
+                onChange={(event) =>
+                  setValues({ until: event.target.value || null })
+                }
+                className="ui-input"
+              />
+            </label>
+            <div className="flex items-end">
+              <button
+                type="button"
+                onClick={() => setValues({ since: null, until: null })}
+                className="ui-button-secondary"
+              >
+                Clear dates
+              </button>
+            </div>
           </div>
-        </div>
+        )}
       </FilterBar>
+
+      {!isLoading && !error ? <ReportingCharts rows={data} /> : null}
 
       <DataTable
         columns={columns}

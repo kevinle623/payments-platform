@@ -7,6 +7,7 @@ import { useMemo, useState } from "react";
 import { EmptyState } from "@/components/common/empty-state";
 import { ErrorState } from "@/components/common/error-state";
 import { PageHeader } from "@/components/common/page-header";
+import { useToast } from "@/components/common/toast-provider";
 import { useCreateBill } from "@/lib/hooks/use-bills";
 import { useCards } from "@/lib/hooks/use-cards";
 import { useCardholders } from "@/lib/hooks/use-cardholders";
@@ -51,6 +52,7 @@ export function NewBillScreen() {
     offset: 0,
   });
   const createBill = useCreateBill();
+  const { pushToast } = useToast();
 
   const [payeeId, setPayeeId] = useState("");
   const [cardId, setCardId] = useState("");
@@ -129,32 +131,57 @@ export function NewBillScreen() {
           const minorUnits = parseMajorAmountToMinor(amountMajor);
           if (minorUnits === null) {
             setFormError("Amount must be greater than 0.");
+            pushToast({
+              variant: "error",
+              title: "Invalid amount",
+              description: "Amount must be greater than 0.",
+            });
             return;
           }
-          const dueIso = new Date(`${nextDueDate}T00:00:00.000Z`).toISOString();
-          const normalizedCurrency = normalizeCurrencyCode(currency);
-          setFormError(null);
+          try {
+            const dueIso = new Date(
+              `${nextDueDate}T00:00:00.000Z`,
+            ).toISOString();
+            const normalizedCurrency = normalizeCurrencyCode(currency);
+            setFormError(null);
 
-          const bill = await createBill.create({
-            payee_id: payeeId,
-            card_id: cardId || null,
-            amount: minorUnits,
-            currency: normalizedCurrency,
-            frequency,
-            next_due_date: dueIso,
-          });
+            const bill = await createBill.create({
+              payee_id: payeeId,
+              card_id: cardId || null,
+              amount: minorUnits,
+              currency: normalizedCurrency,
+              frequency,
+              next_due_date: dueIso,
+            });
 
-          router.push(`/bills/${bill.id}`);
+            pushToast({
+              variant: "success",
+              title: "Bill created",
+              description: "Schedule created successfully.",
+            });
+            router.push(`/bills/${bill.id}`);
+          } catch (submitError) {
+            const message =
+              submitError instanceof Error
+                ? submitError.message
+                : "Failed to create bill.";
+            setFormError(message);
+            pushToast({
+              variant: "error",
+              title: "Could not create bill",
+              description: message,
+            });
+          }
         }}
-        className="grid gap-4 rounded-xl border border-border bg-card p-4 md:grid-cols-2"
+        className="ui-form-card grid gap-4 md:grid-cols-2"
       >
         <label className="space-y-1 text-sm">
-          <span className="text-foreground-muted">Payee</span>
+          <span className="ui-field-label">Payee</span>
           <select
             value={payeeId}
             onChange={(event) => setPayeeId(event.target.value)}
             required
-            className="w-full rounded-md border border-border bg-background px-3 py-2 text-foreground"
+            className="ui-select"
           >
             <option value="">Select payee</option>
             {payees.map((payee) => (
@@ -166,11 +193,11 @@ export function NewBillScreen() {
         </label>
 
         <label className="space-y-1 text-sm">
-          <span className="text-foreground-muted">Linked card (optional)</span>
+          <span className="ui-field-label">Linked card (optional)</span>
           <select
             value={cardId}
             onChange={(event) => setCardId(event.target.value)}
-            className="w-full rounded-md border border-border bg-background px-3 py-2 text-foreground"
+            className="ui-select"
           >
             <option value="">No linked card</option>
             {cards.map((card) => {
@@ -191,7 +218,7 @@ export function NewBillScreen() {
         </label>
 
         <label className="space-y-1 text-sm">
-          <span className="text-foreground-muted">Amount (major units)</span>
+          <span className="ui-field-label">Amount (major units)</span>
           <input
             value={amountMajor}
             onChange={(event) => setAmountMajor(event.target.value)}
@@ -199,28 +226,28 @@ export function NewBillScreen() {
             step="0.01"
             min="0.01"
             required
-            className="w-full rounded-md border border-border bg-background px-3 py-2 text-foreground"
+            className="ui-input"
           />
         </label>
 
         <label className="space-y-1 text-sm">
-          <span className="text-foreground-muted">Currency</span>
+          <span className="ui-field-label">Currency</span>
           <input
             value={currency}
             onChange={(event) => setCurrency(event.target.value)}
             required
-            className="w-full rounded-md border border-border bg-background px-3 py-2 text-foreground"
+            className="ui-input"
           />
         </label>
 
         <label className="space-y-1 text-sm">
-          <span className="text-foreground-muted">Frequency</span>
+          <span className="ui-field-label">Frequency</span>
           <select
             value={frequency}
             onChange={(event) =>
               setFrequency(event.target.value as BillFrequency)
             }
-            className="w-full rounded-md border border-border bg-background px-3 py-2 text-foreground"
+            className="ui-select"
           >
             {FREQUENCIES.map((entry) => (
               <option key={entry} value={entry}>
@@ -231,13 +258,13 @@ export function NewBillScreen() {
         </label>
 
         <label className="space-y-1 text-sm">
-          <span className="text-foreground-muted">Next due date</span>
+          <span className="ui-field-label">Next due date</span>
           <input
             type="date"
             value={nextDueDate}
             onChange={(event) => setNextDueDate(event.target.value)}
             required
-            className="w-full rounded-md border border-border bg-background px-3 py-2 text-foreground"
+            className="ui-input"
           />
         </label>
 
@@ -245,13 +272,11 @@ export function NewBillScreen() {
           <button
             type="submit"
             disabled={!canSubmit || createBill.isLoading}
-            className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
+            className="ui-button-primary"
           >
             {createBill.isLoading ? "Creating..." : "Create bill"}
           </button>
-          {formError ? (
-            <p className="mt-2 text-sm text-danger">{formError}</p>
-          ) : null}
+          {formError ? <p className="ui-inline-error">{formError}</p> : null}
         </div>
       </form>
     </div>

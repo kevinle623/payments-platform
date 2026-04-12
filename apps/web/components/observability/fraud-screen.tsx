@@ -82,7 +82,7 @@ export function FraudScreen() {
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <label
               htmlFor="risk-level"
-              className="text-xs font-medium uppercase tracking-wide text-foreground-subtle"
+              className="ui-field-label text-xs font-medium uppercase tracking-wide"
             >
               Risk
             </label>
@@ -95,7 +95,7 @@ export function FraudScreen() {
                   offset: "0",
                 })
               }
-              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground sm:w-64"
+              className="ui-select sm:w-64"
             >
               <option value="">All levels</option>
               {RISK_LEVELS.map((entry) => (

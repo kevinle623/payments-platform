@@ -118,7 +118,7 @@ export function BillsListScreen() {
         actions={
           <Link
             href="/bills/new"
-            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground"
+            className="ui-button-primary inline-flex items-center gap-1.5"
           >
             <Plus className="h-4 w-4" />
             New bill
@@ -131,7 +131,7 @@ export function BillsListScreen() {
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <label
               htmlFor="bill-status"
-              className="text-xs font-medium uppercase tracking-wide text-foreground-subtle"
+              className="ui-field-label text-xs font-medium uppercase tracking-wide"
             >
               Status
             </label>
@@ -142,7 +142,7 @@ export function BillsListScreen() {
                 const nextStatus = event.target.value || null;
                 setValues({ status: nextStatus, offset: "0" });
               }}
-              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground sm:w-64"
+              className="ui-select sm:w-64"
             >
               <option value="">All statuses</option>
               {BILL_STATUSES.map((entry) => (

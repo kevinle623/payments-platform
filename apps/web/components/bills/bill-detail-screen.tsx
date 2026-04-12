@@ -15,12 +15,19 @@ import { KeyValueList } from "@/components/common/key-value-list";
 import { LoadingSkeleton } from "@/components/common/loading-skeleton";
 import { PageHeader } from "@/components/common/page-header";
 import { StatusBadge } from "@/components/common/status-badge";
+import { useToast } from "@/components/common/toast-provider";
 import { useBill, useExecuteBill, useUpdateBill } from "@/lib/hooks/use-bills";
 import { useCard } from "@/lib/hooks/use-cards";
 import { usePayees } from "@/lib/hooks/use-payees";
 import type { BillPayment } from "@/lib/api/types";
 import { formatDateTime } from "@/lib/utils/format";
 import { getFirstParamValue } from "@/lib/utils/params";
+import { useState } from "react";
+
+function getErrorMessage(value: unknown): string {
+  if (value instanceof Error) return value.message;
+  return "Request failed. Please try again.";
+}
 
 export function BillDetailScreen() {
   const params = useParams<{ id: string }>();
@@ -30,6 +37,8 @@ export function BillDetailScreen() {
   const executeBill = useExecuteBill();
   const updateBill = useUpdateBill();
   const { data: payees } = usePayees({ limit: 500, offset: 0 });
+  const { pushToast } = useToast();
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const columns: DataTableColumn<BillPayment>[] = [
     {
@@ -90,6 +99,91 @@ export function BillDetailScreen() {
   const payee = payees.find((entry) => entry.id === bill.payee_id);
   const canToggleStatus = bill.status === "active" || bill.status === "paused";
   const nextStatus = bill.status === "active" ? "paused" : "active";
+  const nextStatusLabel = nextStatus === "paused" ? "Pause" : "Resume";
+
+  const handleExecute = async () => {
+    if (!billId) return;
+    const confirmed = window.confirm("Execute this bill now?");
+    if (!confirmed) return;
+
+    try {
+      setActionError(null);
+      const response = await executeBill.execute(billId);
+      await mutate(
+        (current) =>
+          current
+            ? {
+                bill: response.bill,
+                payments: [response.bill_payment, ...current.payments],
+              }
+            : current,
+        { revalidate: false },
+      );
+      pushToast({
+        variant: "success",
+        title: "Bill executed",
+        description: "A new execution record was created.",
+      });
+    } catch (err) {
+      const message = getErrorMessage(err);
+      setActionError(message);
+      pushToast({
+        variant: "error",
+        title: "Could not execute bill",
+        description: message,
+      });
+    }
+  };
+
+  const handleStatusToggle = async () => {
+    if (!billId) return;
+    const action = nextStatus === "paused" ? "pause" : "resume";
+    const confirmed = window.confirm(
+      `Are you sure you want to ${action} this bill?`,
+    );
+    if (!confirmed) return;
+
+    try {
+      setActionError(null);
+      await mutate(
+        async (current) => {
+          const updatedBill = await updateBill.update(billId, {
+            status: nextStatus,
+          });
+          if (!current) return current;
+          return {
+            ...current,
+            bill: updatedBill,
+          };
+        },
+        {
+          optimisticData: {
+            ...data,
+            bill: {
+              ...data.bill,
+              status: nextStatus,
+              updated_at: new Date().toISOString(),
+            },
+          },
+          rollbackOnError: true,
+          revalidate: false,
+        },
+      );
+      pushToast({
+        variant: "success",
+        title: `Bill ${action}d`,
+        description: `Bill is now ${nextStatus}.`,
+      });
+    } catch (err) {
+      const message = getErrorMessage(err);
+      setActionError(message);
+      pushToast({
+        variant: "error",
+        title: `Could not ${action} bill`,
+        description: message,
+      });
+    }
+  };
 
   return (
     <div className="space-y-5">
@@ -111,13 +205,7 @@ export function BillDetailScreen() {
               <button
                 type="button"
                 disabled={executeBill.isLoading}
-                onClick={async () => {
-                  if (!billId) return;
-                  const confirmed = window.confirm("Execute this bill now?");
-                  if (!confirmed) return;
-                  await executeBill.execute(billId);
-                  await mutate();
-                }}
+                onClick={handleExecute}
                 className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-sm text-foreground hover:bg-card-hover disabled:opacity-50"
               >
                 <Play className="h-4 w-4" />
@@ -127,29 +215,19 @@ export function BillDetailScreen() {
                 <button
                   type="button"
                   disabled={updateBill.isLoading}
-                  onClick={async () => {
-                    if (!billId) return;
-                    const action = nextStatus === "paused" ? "pause" : "resume";
-                    const confirmed = window.confirm(
-                      `Are you sure you want to ${action} this bill?`,
-                    );
-                    if (!confirmed) return;
-                    await updateBill.update(billId, { status: nextStatus });
-                    await mutate();
-                  }}
+                  onClick={handleStatusToggle}
                   className="rounded-md border border-border px-3 py-1.5 text-sm text-foreground hover:bg-card-hover disabled:opacity-50"
                 >
-                  {updateBill.isLoading
-                    ? "Saving..."
-                    : nextStatus === "paused"
-                      ? "Pause"
-                      : "Resume"}
+                  {updateBill.isLoading ? "Saving..." : nextStatusLabel}
                 </button>
               ) : null}
             </div>
           }
           className="border-none pb-0"
         />
+        {actionError ? (
+          <p className="mt-3 text-sm text-danger">{actionError}</p>
+        ) : null}
       </div>
 
       <KeyValueList

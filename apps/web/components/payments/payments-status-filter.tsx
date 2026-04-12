@@ -16,7 +16,7 @@ export function PaymentsStatusFilter({
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
         <label
           htmlFor="payment-status"
-          className="text-xs font-medium uppercase tracking-wide text-foreground-subtle"
+          className="ui-field-label text-xs font-medium uppercase tracking-wide"
         >
           Status
         </label>
@@ -26,7 +26,7 @@ export function PaymentsStatusFilter({
           onChange={(event) =>
             onStatusChange((event.target.value as PaymentStatus) || undefined)
           }
-          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:w-64"
+          className="ui-select sm:w-64"
         >
           <option value="">All statuses</option>
           {PAYMENT_STATUSES.map((entry) => (

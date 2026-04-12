@@ -2,6 +2,7 @@
 
 import { SWRConfig } from "swr";
 import type { ReactNode } from "react";
+import { ToastProvider } from "@/components/common/toast-provider";
 
 export function Providers({ children }: { children: ReactNode }) {
   return (
@@ -25,7 +26,7 @@ export function Providers({ children }: { children: ReactNode }) {
         },
       }}
     >
-      {children}
+      <ToastProvider>{children}</ToastProvider>
     </SWRConfig>
   );
 }
