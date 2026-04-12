@@ -1,59 +1,126 @@
-# payments-platform/apps/web
+# apps/web
 
-Dummy frontend for end-to-end Stripe payment testing. Calls the FastAPI backend to authorize a payment, then uses Stripe Elements to collect card details and confirm the payment intent.
+Next.js 16 dashboard + checkout frontend for the payments-platform backend.
 
-Current status (April 4, 2026): this app is still checkout-only. Backend bill payments (`/payees`, `/bills`) and issuer observability APIs are available, and the next web initiative is the dashboard pages for payments, issuer, bills, fraud, reconciliation, and reporting.
+## Status snapshot (April 11, 2026)
 
-## Tech stack
+Dashboard implementation is complete:
 
-- Next.js 16 (App Router)
-- TypeScript
+- checkout on `/`
+- payments, issuing, bills, and observability routes
+- shared component system under `components/common`
+- SWR hook layer under `lib/hooks`
+- unit/component tests with Vitest
+
+## Stack
+
+- Next.js 16 App Router
+- React 19 + TypeScript
 - Tailwind CSS v4
-- Bun
-- Stripe.js / React Stripe
 - SWR
+- Stripe Elements
+- Vitest + Testing Library
 
-## Project structure
+## Architecture
 
+Strict layering:
+
+```text
+lib/api/*   -> endpoint service functions
+lib/hooks/* -> SWR query/mutation hooks
+app/* + components/* -> UI routes and feature components
 ```
+
+Rules:
+
+- Components do not import SWR directly.
+- Pages are thin wrappers and should not fetch directly.
+- Dynamic route params use `useParams()` from `next/navigation`.
+- Query/filter state is URL-driven via search params.
+
+## Route coverage
+
+- `/` overview + Stripe checkout
+- `/payments` list
+- `/payments/[id]` detail (overview/ledger/outbox/issuer tabs)
+- `/cards` list + issue form
+- `/cards/[id]` detail (card + balance + authorizations in parallel)
+- `/cardholders` list + create form
+- `/payees` list + create form
+- `/bills` list + status filter
+- `/bills/new` create flow
+- `/bills/[id]` detail + execute + pause/resume
+- `/fraud` list + risk filter
+- `/reporting` date filters + charts + summary table
+- `/reconciliation` run list + lazy discrepancy expansion
+- custom `not-found` UI
+
+## Project layout
+
+```text
 app/
-  layout.tsx          Root layout (Geist font, global styles)
-  page.tsx            Payment page (authorize + Stripe Elements)
-  globals.css         Tailwind + CSS variables
+  page.tsx
+  payments/*, cards/*, cardholders/*, payees/*, bills/*, fraud/*, reporting/*, reconciliation/*
+  not-found.tsx
 components/
-  checkout-form.tsx   Stripe PaymentElement form
-hooks/
-  use-authorize.ts    SWR mutation hook for payment authorization
+  common/          reusable UI primitives
+  payments/        payments feature screens
+  issuing/         cards/cardholders screens
+  bills/           payees + bills screens
+  observability/   fraud/reconciliation/reporting screens
+  shell/           app shell/sidebar/topbar
 lib/
-  payments.ts         API service layer (authorize endpoint)
-  stripe.ts           Stripe.js singleton
+  api/             typed API client modules
+  hooks/           SWR hooks
+  utils/           formatting/status/forms/reporting helpers
+hooks/
+  use-authorize.ts checkout authorize mutation hook
 ```
 
-## Getting started
+## Environment
+
+`apps/web/.env.local`:
+
+| Variable                             | Required | Description                                                 |
+| ------------------------------------ | -------- | ----------------------------------------------------------- |
+| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Yes      | Stripe publishable key (`pk_test_...`)                      |
+| `NEXT_PUBLIC_API_BASE_URL`           | No       | API base URL override (defaults to `http://localhost:8000`) |
+| `NEXT_PUBLIC_API_URL`                | No       | Legacy fallback for API base URL                            |
+
+## Scripts
 
 ```bash
-# Install dependencies
+bun dev
+bun run build
+bun run start
+bun run lint
+bun run prettier --write
+bun run test:unit
+bun run test:unit:watch
+```
+
+## Local run
+
+```bash
 bun install
-
-# Add your Stripe publishable key
-echo 'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_YOUR_KEY' > .env.local
-
-# Start dev server
 bun dev
 ```
 
-Runs at `http://localhost:3000`. Requires the FastAPI backend running at `http://localhost:8000`.
+Runs at `http://localhost:3000` and expects API at `http://localhost:8000` unless overridden.
 
-## Environment variables
+## Validation checklist
 
-| Variable                             | Description                                     |
-| ------------------------------------ | ----------------------------------------------- |
-| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Stripe publishable key (`pk_test_...`)          |
-| `NEXT_PUBLIC_API_URL`                | API base URL (default: `http://localhost:8000`) |
+```bash
+bun run prettier --write
+bunx tsc --noEmit
+bun run test:unit
+bun run build
+```
 
-## Test flow
+## Manual E2E smoke
 
-1. Click **Continue to Payment**
-2. Enter test card `4242 4242 4242 4242` (any future expiry, any CVC)
-3. Click **Pay $50.00**
-4. Stripe fires a webhook to the backend, settling the payment and writing ledger entries
+1. Start at `/`.
+2. Authorize and submit test card `4242 4242 4242 4242`.
+3. Confirm payment appears in `/payments` and detail page.
+4. Create a payee and bill (`/payees`, `/bills/new`), execute bill from `/bills/[id]`.
+5. Confirm fraud/reporting/reconciliation pages load and filter correctly.
